@@ -9,6 +9,8 @@ export function Sidebar(props: {
   onChange: (p: PageKey) => void;
   onExport: () => void;
   onImport: (f: File) => void;
+  email?: string;
+  onLogout?: () => void;
 }) {
   return (
     <aside className="sidebar">
@@ -31,6 +33,8 @@ export function Sidebar(props: {
         ))}
       </nav>
       <div className="side-footer">
+        {props.email && <div className="user-box">👤 {props.email}</div>}
+        {props.onLogout && <button className="ghost" onClick={props.onLogout}>🚪 تسجيل الخروج</button>}
         <button className="ghost" onClick={props.onExport}>⬇ نسخة احتياطية</button>
         <label className="ghost">
           ⬆ استرجاع

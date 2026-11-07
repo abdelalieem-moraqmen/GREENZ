@@ -101,3 +101,16 @@ td.actions{display:flex;gap:6px;white-space:nowrap}
 .btn.print{background:#475569}
 .editing-banner{background:#fff8db;border:1px solid #f1d56a;padding:8px 12px;border-radius:10px;margin-bottom:10px;font-size:13px}
 .alert.red{background:#fdecec;border-color:#f5b5b7;color:#8a1c1f}
+
+/* auth + misc */
+.auth-wrap{min-height:100vh;display:grid;place-items:center;background:linear-gradient(135deg,#14532d,#2e9e4f)}
+.auth-card{background:#fff;border-radius:22px;padding:34px;width:min(380px,92vw);display:flex;flex-direction:column;gap:12px;text-align:center;box-shadow:0 20px 50px #0004}
+.auth-card h1{margin:0;color:var(--green-d);letter-spacing:2px}.auth-card p{margin:0 0 6px;color:var(--muted)}
+.auth-logo{font-size:44px}
+.auth-msg{background:#fff4e5;border-radius:10px;padding:8px;font-size:13px;color:#8a4b00}
+.link{background:none;border:0;color:var(--green);cursor:pointer;font:inherit}
+.splash{display:grid;place-items:center;min-height:50vh;font-size:40px;color:var(--green)}
+.user-box{font-size:12px;opacity:.8;word-break:break-all;padding:0 6px}
+.auth-msg.ok{background:#e7f6ec;color:#14532d}.auth-msg.bad{background:#fdecec;color:#8a1c1f}
+.pass-row{position:relative;display:flex}.pass-row input{flex:1;padding-left:40px}
+.eye{position:absolute;left:8px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;font-size:16px}
