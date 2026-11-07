@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>إدارة محل المبيدات</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Tahoma,Arial,sans-serif;background:#f1f5f1;color:#222}
+header{background:#1b5e20;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+header h1{margin:0;font-size:20px}
+nav{display:flex;gap:4px;flex-wrap:wrap;background:#2e7d32;padding:6px}
+nav button{background:transparent;color:#fff;border:0;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:15px;font-family:inherit}
+nav button.active{background:#fff;color:#1b5e20;font-weight:bold}
+main{padding:14px;max-width:1200px;margin:auto}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px}
+.card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 4px #0002}
+.card small{color:#666}.card b{display:block;font-size:22px;margin-top:6px}
+.g{color:#2e7d32}.r{color:#c62828}.o{color:#ef6c00}
+.panel{background:#fff;border-radius:10px;padding:14px;margin-bottom:16px;box-shadow:0 1px 4px #0002}
+.panel h3{margin:0 0 10px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:7px;border-bottom:1px solid #e3e3e3;text-align:right}
+th{background:#e8f5e9}
+.scroll{overflow-x:auto}
+form{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:12px;align-items:end}
+label{font-size:12px;color:#555;display:flex;flex-direction:column;gap:3px}
+input,select{padding:7px;border:1px solid #bbb;border-radius:6px;font-family:inherit;font-size:14px}
+.btn{background:#2e7d32;color:#fff;border:0;padding:8px 14px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:14px}
+.btn.s{padding:3px 8px;font-size:12px}.btn.d{background:#c62828}.btn.b{background:#1565c0}
+.bar{display:flex;align-items:center;gap:6px;margin:3px 0;font-size:12px}
+.bar span.l{width:90px;flex-shrink:0}
+.bar div{height:14px;background:#43a047;border-radius:3px;min-width:2px}
+.bar.e div{background:#e53935}
+.mcol{display:flex;align-items:flex-end;gap:8px;height:150px;border-bottom:1px solid #ccc;padding-top:10px;overflow-x:auto}
+.mcol .m{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;font-size:11px;min-width:46px}
+.mcol .m i{display:flex;align-items:flex-end;gap:2px;height:110px}
+.mcol .m i u{display:block;width:16px;background:#43a047;text-decoration:none}
+.mcol .m i u.e{background:#e53935}
+.legend{font-size:12px;margin-top:6px}
+.filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:end}
+</style>
+</head>
+<body>
+<header>
+  <h1>🌿 إدارة محل المبيدات والتوزيع</h1>
+  <div>
+    <button class="btn b s" onclick="exportData()">نسخة احتياطية</button>
+    <button class="btn b s" onclick="document.getElementById('imp').click()">استرجاع</button>
+    <input type="file" id="imp" hidden accept=".json" onchange="importData(event)">
+  </div>
+</header>
+<nav id="nav"></nav>
+<main id="main"></main>
+
+<script>
+const GOVS=["القاهرة","الجيزة","الإسكندرية","القليوبية","الشرقية","الدقهلية","البحيرة","المنوفية","الغربية","كفر الشيخ","دمياط","بورسعيد","الإسماعيلية","السويس","شمال سيناء","جنوب سيناء","الفيوم","بني سويف","المنيا","أسيوط","سوهاج","قنا","الأقصر","أسوان","البحر الأحمر","الوادي الجديد","مطروح","أخرى"];
+
+const KEY="pesticide_app_v1";
+let db=JSON.parse(localStorage.getItem(KEY)||"null")||{suppliers:[],traders:[],products:[],sales:[],purchases:[],expenses:[],payments:[]};
+const save=()=>localStorage.setItem(KEY,JSON.stringify(db));
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const today=()=>new Date().toISOString().slice(0,10);
+const fmt=n=>(Math.round(n*100)/100).toLocaleString("ar-EG");
+const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
+const by=(arr,id)=>arr.find(x=>x.id===id)||{name:"—"};
+const EXP_CATS=["بنزين / سولار","أجرة سائق","صيانة العربية","إيجار المحل","كهرباء ومياه","رواتب عمال","شحن وتحميل","ضرائب ورسوم","أخرى"];
+
+let tab="dash", period="all", filt={};
+
+const tabs=[["dash","📊 لوحة التحكم"],["sales","💰 المبيعات"],["purchases","🛒 المشتريات"],["expenses","💸 المصروفات"],["traders","🏪 التجار"],["suppliers","🚚 الموردون"],["products","📦 المخزون"]];
+function renderNav(){document.getElementById("nav").innerHTML=tabs.map(([k,t])=>`<button class="${k===tab?'active':''}" onclick="tab='${k}';render()">${t}</button>`).join("")}
+
+const inP=d=>{ if(period==="all")return true; const n=new Date(),x=new Date(d);
+  if(period==="month")return x.getMonth()===n.getMonth()&&x.getFullYear()===n.getFullYear();
+  if(period==="year")return x.getFullYear()===n.getFullYear(); return true};
+
+const stock=pid=>sum(db.purchases.filter(p=>p.productId===pid),p=>+p.qty)-sum(db.sales.filter(s=>s.productId===pid),s=>+s.qty);
+const avgCost=pid=>{const p=db.purchases.filter(x=>x.productId===pid);const q=sum(p,x=>+x.qty);return q?sum(p,x=>x.qty*x.cost)/q:0};
+const traderDebt=id=>sum(db.sales.filter(s=>s.traderId===id),s=>s.qty*s.price)-sum(db.sales.filter(s=>s.traderId===id),s=>+s.paid)-sum(db.payments.filter(p=>p.type==="trader"&&p.partyId===id),p=>+p.amount);
+const supplierDebt=id=>sum(db.purchases.filter(s=>s.supplierId===id),s=>s.qty*s.cost)-sum(db.purchases.filter(s=>s.supplierId===id),s=>+s.paid)-sum(db.payments.filter(p=>p.type==="supplier"&&p.partyId===id),p=>+p.amount);
+
+function opts(arr,sel){return arr.map(x=>`<option value="${x.id||x}" ${(x.id||x)===sel?'selected':''}>${x.name||x}</option>`).join("")}
+
+function render(){renderNav();const m=document.getElementById("main");m[{dash:0}[tab]===0?"innerHTML":"innerHTML"]=views[tab]()}
+
+/* ---------- Dashboard ---------- */
+const views={};
+views.dash=()=>{
+  const S=db.sales.filter(x=>inP(x.date)),P=db.purchases.filter(x=>inP(x.date)),E=db.expenses.filter(x=>inP(x.date)),PM=db.payments.filter(x=>inP(x.date));
+  const rev=sum(S,s=>s.qty*s.price), buy=sum(P,s=>s.qty*s.cost), exp=sum(E,e=>+e.amount);
+  const cogs=sum(S,s=>s.qty*avgCost(s.productId));
+  const gross=rev-cogs, net=gross-exp;
+  const collected=sum(S,s=>+s.paid)+sum(PM.filter(p=>p.type==="trader"),p=>+p.amount);
+  const paidSup=sum(P,s=>+s.paid)+sum(PM.filter(p=>p.type==="supplier"),p=>+p.amount);
+  const cash=collected-paidSup-exp;
+  const owedByTraders=sum(db.traders,t=>Math.max(0,traderDebt(t.id)));
+  const owedToSuppliers=sum(db.suppliers,t=>Math.max(0,supplierDebt(t.id)));
+  const stockVal=sum(db.products,p=>Math.max(0,stock(p.id))*avgCost(p.id));
+
+  // by governorate
+  const gv={};S.forEach(s=>gv[s.gov]=(gv[s.gov]||0)+s.qty*s.price);
+  const gl=Object.entries(gv).sort((a,b)=>b[1]-a[1]);const gmax=gl[0]?gl[0][1]:1;
+  // by expense category
+  const ec={};E.forEach(e=>ec[e.category]=(ec[e.category]||0)+ +e.amount);
+  const el=Object.entries(ec).sort((a,b)=>b[1]-a[1]);const emax=el[0]?el[0][1]:1;
+  // monthly
+  const mo={};const add=(d,k,v)=>{const key=d.slice(0,7);mo[key]=mo[key]||{r:0,e:0};mo[key][k]+=v};
+  db.sales.forEach(s=>add(s.date,"r",s.qty*s.price));
+  db.purchases.forEach(s=>add(s.date,"e",s.qty*s.cost));
+  db.expenses.forEach(s=>add(s.date,"e",+s.amount));
+  const ml=Object.entries(mo).sort().slice(-8);const mmax=Math.max(1,...ml.flatMap(([,v])=>[v.r,v.e]));
+  // top products / traders
+  const tp={};S.forEach(s=>tp[s.productId]=(tp[s.productId]||0)+s.qty*s.price);
+  const tt={};S.forEach(s=>tt[s.traderId]=(tt[s.traderId]||0)+s.qty*s.price);
+  const top=(o,arr)=>Object.entries(o).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([id,v])=>`<tr><td>${by(arr,id).name}</td><td>${fmt(v)}</td></tr>`).join("")||'<tr><td>لا توجد بيانات</td></tr>';
+  const low=db.products.filter(p=>stock(p.id)<=(+p.min||0));
+
+  return `
+  <div class="filters"><label>الفترة<select onchange="period=this.value;render()">
+   <option value="all" ${period==='all'?'selected':''}>الكل</option><option value="month" ${period==='month'?'selected':''}>هذا الشهر</option><option value="year" ${period==='year'?'selected':''}>هذه السنة</option></select></label></div>
+  <div class="cards">
+   <div class="card"><small>إجمالي الإيرادات (مبيعات)</small><b class="g">${fmt(rev)} ج</b></div>
+   <div class="card"><small>المشتريات من الموردين</small><b class="r">${fmt(buy)} ج</b></div>
+   <div class="card"><small>المصروفات التشغيلية</small><b class="r">${fmt(exp)} ج</b></div>
+   <div class="card"><small>مجمل الربح</small><b class="${gross>=0?'g':'r'}">${fmt(gross)} ج</b></div>
+   <div class="card"><small>صافي الربح</small><b class="${net>=0?'g':'r'}">${fmt(net)} ج</b></div>
+   <div class="card"><small>النقدية (محصّل − مدفوع − مصروفات)</small><b class="${cash>=0?'g':'r'}">${fmt(cash)} ج</b></div>
+   <div class="card"><small>مستحق لك عند التجار</small><b class="o">${fmt(owedByTraders)} ج</b></div>
+   <div class="card"><small>مستحق عليك للموردين</small><b class="o">${fmt(owedToSuppliers)} ج</b></div>
+   <div class="card"><small>قيمة المخزون</small><b>${fmt(stockVal)} ج</b></div>
+  </div>
+  ${low.length?`<div class="panel"><h3 class="r">⚠️ أصناف قاربت على النفاد</h3>${low.map(p=>`${p.name} (${fmt(stock(p.id))} ${p.unit})`).join(" • ")}</div>`:""}
+  <div class="grid2">
+   <div class="panel"><h3>الإيرادات والمصروفات شهرياً</h3>
+    <div class="mcol">${ml.map(([k,v])=>`<div class="m"><i><u style="height:${v.r/mmax*100}%"></u><u class="e" style="height:${v.e/mmax*100}%"></u></i>${k}</div>`).join("")||"لا توجد بيانات"}</div>
+    <div class="legend"><span class="g">■ إيرادات</span> &nbsp; <span class="r">■ مشتريات + مصروفات</span></div></div>
+   <div class="panel"><h3>المبيعات حسب المحافظة</h3>
+    ${gl.map(([g,v])=>`<div class="bar"><span class="l">${g}</span><div style="width:${v/gmax*60}%"></div>${fmt(v)}</div>`).join("")||"لا توجد بيانات"}</div>
+   <div class="panel"><h3>المصروفات حسب النوع</h3>
+    ${el.map(([g,v])=>`<div class="bar e"><span class="l">${g}</span><div style="width:${v/emax*60}%"></div>${fmt(v)}</div>`).join("")||"لا توجد بيانات"}</div>
+   <div class="panel"><h3>أعلى 5 تجار</h3><table>${top(tt,db.traders)}</table>
+    <h3 style="margin-top:14px">أعلى 5 أصناف مبيعاً</h3><table>${top(tp,db.products)}</table></div>
+   <div class="panel"><h3>ديون التجار</h3><table><tr><th>التاجر</th><th>المحافظة</th><th>المتبقي</th></tr>
+    ${db.traders.filter(t=>traderDebt(t.id)>0.5).sort((a,b)=>traderDebt(b.id)-traderDebt(a.id)).map(t=>`<tr><td>${t.name}</td><td>${t.gov}</td><td class="o">${fmt(traderDebt(t.id))}</td></tr>`).join("")||'<tr><td colspan=3>لا ديون</td></tr>'}</table></div>
+   <div class="panel"><h3>مستحقات الموردين</h3><table><tr><th>المورد</th><th>المتبقي</th></tr>
+    ${db.suppliers.filter(t=>supplierDebt(t.id)>0.5).sort((a,b)=>supplierDebt(b.id)-supplierDebt(a.id)).map(t=>`<tr><td>${t.name}</td><td class="o">${fmt(supplierDebt(t.id))}</td></tr>`).join("")||'<tr><td colspan=2>لا مستحقات</td></tr>'}</table></div>
+  </div>`;
+};
+
+/* ---------- generic helpers ---------- */
+function tableWrap(head,rows){return `<div class="scroll"><table><tr>${head.map(h=>`<th>${h}</th>`).join("")}<th></th></tr>${rows||`<tr><td colspan="${head.length+1}">لا توجد بيانات</td></tr>`}</table></div>`}
+const delBtn=(c,id)=>`<button class="btn s d" onclick="del('${c}','${id}')">حذف</button>`;
+function del(c,id){if(!confirm("متأكد من الحذف؟"))return;db[c]=db[c].filter(x=>x.id!==id);save();render()}
+function submitForm(e,c,fields){e.preventDefault();const f=e.target,o={id:uid()};
+  fields.forEach(k=>{const v=f[k].value;o[k]=["qty","price","cost","paid","amount","min"].includes(k)?(+v||0):v});
+  db[c].push(o);save();render()}
+const govSel=`<label>المحافظة<select name="gov" required>${opts(GOVS)}</select></label>`;
+const dateIn=`<label>التاريخ<input type="date" name="date" value="${today()}" required></label>`;
+
+/* ---------- Sales ---------- */
+views.sales=()=>{
+  if(!db.traders.length||!db.products.length)return `<div class="panel">أضف تاجراً وصنفاً أولاً من تبويب التجار والمخزون.</div>`;
+  const rows=[...db.sales].sort((a,b)=>b.date.localeCompare(a.date)).map(s=>`<tr><td>${s.date}</td><td>${by(db.traders,s.traderId).name}</td><td>${s.gov}</td><td>${by(db.products,s.productId).name}</td><td>${s.qty}</td><td>${fmt(s.price)}</td><td>${fmt(s.qty*s.price)}</td><td>${fmt(s.paid)}</td><td class="o">${fmt(s.qty*s.price-s.paid)}</td><td>${delBtn("sales",s.id)}</td></tr>`).join("");
+  return `<div class="panel"><h3>فاتورة بيع جديدة</h3>
+  <form onsubmit="submitForm(event,'sales',['date','traderId','gov','productId','qty','price','paid'])">${dateIn}
+  <label>التاجر<select name="traderId" onchange="this.form.gov.value=by(db.traders,this.value).gov||this.form.gov.value">${opts(db.traders)}</select></label>${govSel}
+  <label>الصنف<select name="productId" onchange="this.form.price.value=by(db.products,this.value).price||''">${opts(db.products)}</select></label>
+  <label>الكمية<input type="number" step="any" name="qty" required></label>
+  <label>سعر الوحدة<input type="number" step="any" name="price" required value="${db.products[0].price||''}"></label>
+  <label>المدفوع<input type="number" step="any" name="paid" value="0"></label>
+  <button class="btn">حفظ</button></form>
+  ${tableWrap(["التاريخ","التاجر","المحافظة","الصنف","الكمية","السعر","الإجمالي","المدفوع","المتبقي"],rows)}</div>`};
+
+/* ---------- Purchases ---------- */
+views.purchases=()=>{
+  if(!db.suppliers.length||!db.products.length)return `<div class="panel">أضف مورداً وصنفاً أولاً.</div>`;
+  const rows=[...db.purchases].sort((a,b)=>b.date.localeCompare(a.date)).map(s=>`<tr><td>${s.date}</td><td>${by(db.suppliers,s.supplierId).name}</td><td>${by(db.products,s.productId).name}</td><td>${s.qty}</td><td>${fmt(s.cost)}</td><td>${fmt(s.qty*s.cost)}</td><td>${fmt(s.paid)}</td><td class="o">${fmt(s.qty*s.cost-s.paid)}</td><td>${delBtn("purchases",s.id)}</td></tr>`).join("");
+  return `<div class="panel"><h3>فاتورة شراء جديدة</h3>
+  <form onsubmit="submitForm(event,'purchases',['date','supplierId','productId','qty','cost','paid'])">${dateIn}
+  <label>المورد<select name="supplierId">${opts(db.suppliers)}</select></label>
+  <label>الصنف<select name="productId">${opts(db.products)}</select></label>
+  <label>الكمية<input type="number" step="any" name="qty" required></label>
+  <label>سعر الشراء<input type="number" step="any" name="cost" required></label>
+  <label>المدفوع<input type="number" step="any" name="paid" value="0"></label>
+  <button class="btn">حفظ</button></form>
+  ${tableWrap(["التاريخ","المورد","الصنف","الكمية","السعر","الإجمالي","المدفوع","المتبقي"],rows)}</div>`};
+
+/* ---------- Expenses ---------- */
+views.expenses=()=>{
+  const rows=[...db.expenses].sort((a,b)=>b.date.localeCompare(a.date)).map(e=>`<tr><td>${e.date}</td><td>${e.category}</td><td>${e.gov||"—"}</td><td>${fmt(e.amount)}</td><td>${e.note||""}</td><td>${delBtn("expenses",e.id)}</td></tr>`).join("");
+  return `<div class="panel"><h3>تسجيل مصروف</h3>
+  <form onsubmit="submitForm(event,'expenses',['date','category','gov','amount','note'])">${dateIn}
+  <label>النوع<select name="category">${opts(EXP_CATS)}</select></label>
+  <label>المحافظة (اختياري)<select name="gov"><option value="">—</option>${opts(GOVS)}</select></label>
+  <label>المبلغ<input type="number" step="any" name="amount" required></label>
+  <label>ملاحظة<input name="note"></label><button class="btn">حفظ</button></form>
+  ${tableWrap(["التاريخ","النوع","المحافظة","المبلغ","ملاحظة"],rows)}</div>`};
+
+/* ---------- Parties ---------- */
+function partyView(c,type,label,debtFn){
+  const rows=db[c].map(t=>`<tr><td>${t.name}</td><td>${t.phone||""}</td><td>${t.gov||""}</td><td class="o">${fmt(debtFn(t.id))}</td>
+   <td><button class="btn s b" onclick="pay('${type}','${t.id}')">تسجيل دفعة</button> ${delBtn(c,t.id)}</td></tr>`).join("");
+  const hist=db.payments.filter(p=>p.type===type).sort((a,b)=>b.date.localeCompare(a.date)).map(p=>`<tr><td>${p.date}</td><td>${by(db[c],p.partyId).name}</td><td>${fmt(p.amount)}</td><td>${delBtn("payments",p.id)}</td></tr>`).join("");
+  return `<div class="panel"><h3>إضافة ${label}</h3>
+  <form onsubmit="submitForm(event,'${c}',['name','phone','gov'])"><label>الاسم<input name="name" required></label><label>التليفون<input name="phone"></label>${govSel}<button class="btn">إضافة</button></form>
+  ${tableWrap(["الاسم","التليفون","المحافظة","المتبقي"],rows)}</div>
+  <div class="panel"><h3>سجل الدفعات</h3>${tableWrap(["التاريخ","الاسم","المبلغ"],hist)}</div>`}
+function pay(type,id){const a=+prompt("المبلغ:");if(!a)return;db.payments.push({id:uid(),date:today(),type,partyId:id,amount:a});save();render()}
+views.traders=()=>partyView("traders","trader","تاجر",traderDebt);
+views.suppliers=()=>partyView("suppliers","supplier","مورد",supplierDebt);
+
+/* ---------- Products ---------- */
+views.products=()=>{
+  const rows=db.products.map(p=>`<tr><td>${p.name}</td><td>${p.unit}</td><td>${fmt(p.price)}</td><td>${fmt(avgCost(p.id))}</td><td class="${stock(p.id)<=p.min?'r':''}">${fmt(stock(p.id))}</td><td>${fmt(Math.max(0,stock(p.id))*avgCost(p.id))}</td><td>${delBtn("products",p.id)}</td></tr>`).join("");
+  return `<div class="panel"><h3>إضافة صنف</h3>
+  <form onsubmit="submitForm(event,'products',['name','unit','price','min'])"><label>اسم المبيد<input name="name" required></label>
+  <label>الوحدة<select name="unit"><option>لتر</option><option>كيلو</option><option>عبوة</option><option>كرتونة</option><option>جركن</option></select></label>
+  <label>سعر البيع الافتراضي<input type="number" step="any" name="price"></label>
+  <label>حد التنبيه<input type="number" name="min" value="5"></label><button class="btn">إضافة</button></form>
+  ${tableWrap(["الصنف","الوحدة","سعر البيع","متوسط التكلفة","المتاح","قيمة المخزون"],rows)}</div>`};
+
+/* ---------- Backup ---------- */
+function exportData(){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(db)],{type:"application/json"}));a.download="backup-"+today()+".json";a.click()}
+function importData(e){const r=new FileReader();r.onload=()=>{db=JSON.parse(r.result);save();render()};r.readAsText(e.target.files[0])}
+
+render();
+</script>
+</body>
+</html>
