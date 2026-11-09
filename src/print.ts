@@ -10,7 +10,7 @@ th{background:#e7f6ec} .tot td{font-weight:bold;background:#f6f6f6}
 .big{font-size:18px;margin-top:16px}
 `;
 
-function openPrint(title: string, body: string) {
+export function openPrint(title: string, body: string) {
   const w = window.open("", "_blank");
   if (!w) return alert("اسمح بالنوافذ المنبثقة للطباعة");
   w.document.write(`<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${title}</title><style>${STYLE}</style></head><body>${body}</body></html>`);

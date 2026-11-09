@@ -114,3 +114,9 @@ td.actions{display:flex;gap:6px;white-space:nowrap}
 .auth-msg.ok{background:#e7f6ec;color:#14532d}.auth-msg.bad{background:#fdecec;color:#8a1c1f}
 .pass-row{position:relative;display:flex}.pass-row input{flex:1;padding-left:40px}
 .eye{position:absolute;left:8px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;font-size:16px}
+
+/* erp */
+.tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.tabs button{border:1.5px solid var(--border);background:#fff;padding:9px 16px;border-radius:12px;font:inherit;cursor:pointer}
+.tabs button.on{background:var(--green);color:#fff;border-color:var(--green);font-weight:700}
+.filters{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}

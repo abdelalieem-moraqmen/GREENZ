@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
-import { GOVS, EXPENSE_CATEGORIES, UNITS } from "../constants";
+import { GOVS, EXPENSE_CATEGORIES, UNITS, MAIN_WAREHOUSE } from "../constants";
 import { Field, Select } from "./ui";
 import { fmt, sum, today } from "../calc";
-import type { DB, Expense, Party, Product, Purchase, PurchaseLine, Sale, SaleLine } from "../types";
+import type { DB, Expense, Party, Product, Purchase, PurchaseLine, PurchaseReturn, Sale, SaleLine, SalesReturn, Transfer, Warehouse } from "../types";
 
 /** خصائص مشتركة لكل النماذج: قيمة ابتدائية (للتعديل) + حفظ + إلغاء. */
 interface FormProps<T> {
@@ -19,6 +19,7 @@ function readForm(e: FormEvent<HTMLFormElement>) {
   return out;
 }
 
+const whOpts = (db: DB) => [MAIN_WAREHOUSE, ...db.warehouses].map((w) => ({ value: w.id, label: w.name }));
 const opt = <T extends { id: string; name: string }>(a: T[]) => a.map((x) => ({ value: x.id, label: x.name }));
 
 function Actions({ editing, onCancel, label }: { editing: boolean; onCancel?: () => void; label: string }) {
@@ -41,7 +42,7 @@ const NumField = ({ label, name, value, required }: { label: string; name: strin
 type Line = { productId: string; qty: number | ""; unitPrice: number | ""; expiry?: string };
 
 function LinesEditor(props: {
-  db: DB; lines: Line[]; priceLabel: string; withExpiry?: boolean;
+  db: DB; lines: Line[]; priceLabel: string; withExpiry?: boolean; hidePrice?: boolean;
   onChange: (l: Line[]) => void; priceFor?: (pid: string) => number;
 }) {
   const { db, lines, onChange } = props;
@@ -56,13 +57,15 @@ function LinesEditor(props: {
           </select>
           <input type="number" step="any" placeholder="الكمية" value={l.qty}
             onChange={(e) => set(i, { qty: e.target.value === "" ? "" : Number(e.target.value) })} />
-          <input type="number" step="any" placeholder={props.priceLabel} value={l.unitPrice}
-            onChange={(e) => set(i, { unitPrice: e.target.value === "" ? "" : Number(e.target.value) })} />
+          {!props.hidePrice && (
+            <input type="number" step="any" placeholder={props.priceLabel} value={l.unitPrice}
+              onChange={(e) => set(i, { unitPrice: e.target.value === "" ? "" : Number(e.target.value) })} />
+          )}
           {props.withExpiry && (
             <input type="date" title="تاريخ الصلاحية" value={l.expiry ?? ""}
               onChange={(e) => set(i, { expiry: e.target.value })} />
           )}
-          <b className="line-total">{fmt((+l.qty || 0) * (+l.unitPrice || 0))}</b>
+          {!props.hidePrice && <b className="line-total">{fmt((+l.qty || 0) * (+l.unitPrice || 0))}</b>}
           <button type="button" className="btn sm danger" disabled={lines.length === 1}
             onClick={() => onChange(lines.filter((_, j) => j !== i))}>✕</button>
         </div>
@@ -88,13 +91,14 @@ export function SaleForm({ db, initial, onSave, onCancel }: FormProps<Sale> & { 
       const items: SaleLine[] = lines.filter((l) => +l.qty > 0)
         .map((l) => ({ productId: l.productId, qty: +l.qty, price: +l.unitPrice || 0 }));
       if (!items.length) return alert("أضف صنفاً بكمية صحيحة");
-      onSave({ date: f.date as string, traderId: f.traderId as string, gov: f.gov as string, paid: f.paid as number, note: f.note as string, items });
+      onSave({ date: f.date as string, traderId: f.traderId as string, warehouseId: f.warehouseId as string, gov: f.gov as string, paid: f.paid as number, note: f.note as string, items });
       if (!initial) setLines([{ productId: first.id, qty: "", unitPrice: first.price || "" }]);
     }}>
       <div className="form-grid">
         <DateField value={initial?.date} />
         <Field label="التاجر"><Select name="traderId" options={opt(db.traders)} defaultValue={initial?.traderId} /></Field>
         <Field label="المحافظة"><Select name="gov" options={GOVS} defaultValue={initial?.gov} /></Field>
+        <Field label="المخزن"><Select name="warehouseId" options={whOpts(db)} defaultValue={initial?.warehouseId ?? ""} /></Field>
         <NumField label="المدفوع الآن" name="paid" value={initial?.paid ?? 0} />
         <Field label="ملاحظة"><input name="note" defaultValue={initial?.note} /></Field>
       </div>
@@ -119,12 +123,13 @@ export function PurchaseForm({ db, initial, onSave, onCancel }: FormProps<Purcha
       const items: PurchaseLine[] = lines.filter((l) => +l.qty > 0)
         .map((l) => ({ productId: l.productId, qty: +l.qty, cost: +l.unitPrice || 0, expiry: l.expiry || undefined }));
       if (!items.length) return alert("أضف صنفاً بكمية صحيحة");
-      onSave({ date: f.date as string, supplierId: f.supplierId as string, paid: f.paid as number, note: f.note as string, items });
+      onSave({ date: f.date as string, supplierId: f.supplierId as string, warehouseId: f.warehouseId as string, paid: f.paid as number, note: f.note as string, items });
       if (!initial) setLines(blank());
     }}>
       <div className="form-grid">
         <DateField value={initial?.date} />
         <Field label="المورد"><Select name="supplierId" options={opt(db.suppliers)} defaultValue={initial?.supplierId} /></Field>
+        <Field label="المخزن"><Select name="warehouseId" options={whOpts(db)} defaultValue={initial?.warehouseId ?? ""} /></Field>
         <NumField label="المدفوع الآن" name="paid" value={initial?.paid ?? 0} />
         <Field label="ملاحظة"><input name="note" defaultValue={initial?.note} /></Field>
       </div>
@@ -168,6 +173,90 @@ export function ProductForm({ initial, onSave, onCancel }: FormProps<Product>) {
       <NumField label="سعر البيع الافتراضي" name="price" value={initial?.price} />
       <NumField label="حد التنبيه" name="min" value={initial?.min ?? 5} />
       <Actions editing={!!initial} onCancel={onCancel} label="إضافة صنف" />
+    </form>
+  );
+}
+
+/* ================= مرتجعات ================= */
+/** مرتجع مبيعات (من تاجر) أو مرتجع مشتريات (إلى مورد) — نفس الشكل، الفرق في الطرف والسعر. */
+export function ReturnForm(props: {
+  db: DB; kind: "sales" | "purchases";
+  initial?: SalesReturn | PurchaseReturn;
+  onSave: (data: object) => void; onCancel?: () => void;
+}) {
+  const { db, kind, initial } = props;
+  const isSales = kind === "sales";
+  const first = db.products[0];
+  const blank = (): Line[] => [{ productId: first.id, qty: "", unitPrice: isSales ? first.price || "" : "" }];
+  const [lines, setLines] = useState<Line[]>(
+    initial ? (initial.items as any[]).map((i) => ({ productId: i.productId, qty: i.qty, unitPrice: isSales ? i.price : i.cost })) : blank());
+  const total = sum(lines, (l) => (+l.qty || 0) * (+l.unitPrice || 0));
+  const init = initial as any;
+
+  return (
+    <form className="invoice-form" onSubmit={(e) => {
+      const f = readForm(e);
+      const items = lines.filter((l) => +l.qty > 0).map((l) =>
+        isSales ? { productId: l.productId, qty: +l.qty, price: +l.unitPrice || 0 }
+                : { productId: l.productId, qty: +l.qty, cost: +l.unitPrice || 0 });
+      if (!items.length) return alert("أضف صنفاً بكمية صحيحة");
+      props.onSave({
+        date: f.date, warehouseId: f.warehouseId, note: f.note, items,
+        ...(isSales ? { traderId: f.partyId } : { supplierId: f.partyId }),
+      });
+      if (!initial) setLines(blank());
+    }}>
+      <div className="form-grid">
+        <DateField value={initial?.date} />
+        <Field label={isSales ? "التاجر" : "المورد"}>
+          <Select name="partyId" options={opt(isSales ? db.traders : db.suppliers)}
+            defaultValue={isSales ? init?.traderId : init?.supplierId} />
+        </Field>
+        <Field label="المخزن"><Select name="warehouseId" options={whOpts(db)} defaultValue={initial?.warehouseId ?? ""} /></Field>
+        <Field label="ملاحظة / سبب المرتجع"><input name="note" defaultValue={initial?.note} /></Field>
+      </div>
+      <LinesEditor db={db} lines={lines} onChange={setLines} priceLabel={isSales ? "سعر الوحدة" : "سعر الشراء"}
+        priceFor={isSales ? (pid) => db.products.find((p) => p.id === pid)?.price ?? 0 : undefined} />
+      <div className="invoice-total">قيمة المرتجع: <b>{fmt(total)} ج</b></div>
+      <Actions editing={!!initial} onCancel={props.onCancel} label="حفظ المرتجع" />
+    </form>
+  );
+}
+
+/* ================= مخازن وتحويلات ================= */
+export function WarehouseForm({ initial, onSave, onCancel }: FormProps<Warehouse>) {
+  return (
+    <form className="form-grid" onSubmit={(e) => { onSave(readForm(e) as never); if (!initial) e.currentTarget.reset(); }}>
+      <Field label="اسم المخزن"><input name="name" required defaultValue={initial?.name} /></Field>
+      <Field label="المحافظة"><Select name="gov" options={GOVS} defaultValue={initial?.gov} /></Field>
+      <Actions editing={!!initial} onCancel={onCancel} label="إضافة مخزن" />
+    </form>
+  );
+}
+
+export function TransferForm({ db, initial, onSave, onCancel }: FormProps<Transfer> & { db: DB }) {
+  const first = db.products[0];
+  const blank = (): Line[] => [{ productId: first.id, qty: "", unitPrice: 0 }];
+  const [lines, setLines] = useState<Line[]>(
+    initial ? initial.items.map((i) => ({ productId: i.productId, qty: i.qty, unitPrice: 0 })) : blank());
+  const wh = whOpts(db);
+  return (
+    <form className="invoice-form" onSubmit={(e) => {
+      const f = readForm(e);
+      if (f.fromId === f.toId) return alert("اختر مخزنين مختلفين");
+      const items = lines.filter((l) => +l.qty > 0).map((l) => ({ productId: l.productId, qty: +l.qty }));
+      if (!items.length) return alert("أضف صنفاً بكمية صحيحة");
+      onSave({ date: f.date as string, fromId: f.fromId as string, toId: f.toId as string, note: f.note as string, items });
+      if (!initial) setLines(blank());
+    }}>
+      <div className="form-grid">
+        <DateField value={initial?.date} />
+        <Field label="من مخزن"><Select name="fromId" options={wh} defaultValue={initial?.fromId ?? ""} /></Field>
+        <Field label="إلى مخزن"><Select name="toId" options={wh} defaultValue={initial?.toId ?? wh[1]?.value ?? ""} /></Field>
+        <Field label="ملاحظة"><input name="note" defaultValue={initial?.note} /></Field>
+      </div>
+      <LinesEditor db={db} lines={lines} onChange={setLines} priceLabel="" hidePrice />
+      <Actions editing={!!initial} onCancel={onCancel} label="تنفيذ التحويل" />
     </form>
   );
 }

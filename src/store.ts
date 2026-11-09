@@ -2,12 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import type { Collection, DB } from "./types";
 import { uid } from "./calc";
 import { supabase } from "./supabase";
+import { TABLE_NAMES } from "./constants";
 
-export const TABLES: Collection[] = ["traders", "suppliers", "products", "sales", "purchases", "expenses", "payments"];
+export const TABLES = Object.keys(TABLE_NAMES) as Collection[];
+const tbl = (c: Collection) => TABLE_NAMES[c];
 
 const empty: DB = {
-  traders: [], suppliers: [], products: [], sales: [],
-  purchases: [], expenses: [], payments: [],
+  traders: [], suppliers: [], products: [], warehouses: [], sales: [],
+  purchases: [], salesReturns: [], purchaseReturns: [], transfers: [],
+  expenses: [], payments: [],
 };
 
 /* camelCase (التطبيق) <-> snake_case (قاعدة البيانات) — المفاتيح العليا فقط */
@@ -47,12 +50,14 @@ export function useDB() {
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
-    const results = await Promise.all(TABLES.map((t) => supabase.from(t).select("*")));
+    const results = await Promise.all(TABLES.map((t) => supabase.from(tbl(t)).select("*")));
     const next: any = { ...empty };
+    const failed: string[] = [];
     results.forEach((r, i) => {
-      if (r.error) alert(`خطأ في تحميل ${TABLES[i]}: ${r.error.message}`);
+      if (r.error) failed.push(TABLES[i]);
       else next[TABLES[i]] = (r.data ?? []).map((row) => toCamel(row));
     });
+    if (failed.length) alert(`تعذر تحميل: ${failed.join("، ")}\nشغّل ملفات SQL (schema.sql ثم schema_v2.sql) في Supabase ثم حدّث الصفحة.`);
     setDb(next);
     setLoading(false);
   }, []);
@@ -68,19 +73,19 @@ export function useDB() {
   const add = useCallback(<K extends Collection>(c: K, item: Omit<DB[K][number], "id">) => {
     const row = { ...item, id: uid() };
     setDb((d) => ({ ...d, [c]: [...d[c], row] }));
-    run(supabase.from(c).insert(toSnake(row)));
+    run(supabase.from(tbl(c)).insert(toSnake(row)));
   }, [run]);
 
   const update = useCallback((c: Collection, id: string, item: object) => {
     const row = { ...item, id };
     setDb((d) => ({ ...d, [c]: (d[c] as { id: string }[]).map((x) => (x.id === id ? row : x)) }));
     const { id: _id, ...patch } = row;
-    run(supabase.from(c).update(toSnake(patch)).eq("id", id));
+    run(supabase.from(tbl(c)).update(toSnake(patch)).eq("id", id));
   }, [run]);
 
   const remove = useCallback((c: Collection, id: string) => {
     setDb((d) => ({ ...d, [c]: (d[c] as { id: string }[]).filter((x) => x.id !== id) }));
-    run(supabase.from(c).delete().eq("id", id));
+    run(supabase.from(tbl(c)).delete().eq("id", id));
   }, [run]);
 
   /** استيراد (نسخة احتياطية أو بيانات المتصفح القديمة) — يدمج ولا يمسح. */
@@ -88,7 +93,7 @@ export function useDB() {
     const data = migrate(raw);
     for (const t of TABLES) {
       if (!data[t].length) continue;
-      const { error } = await supabase.from(t).upsert(data[t].map((r: any) => toSnake(r)));
+      const { error } = await supabase.from(tbl(t)).upsert(data[t].map((r: any) => toSnake(r)));
       if (error) { alert(`فشل استيراد ${t}: ${error.message}`); break; }
     }
     await reload();

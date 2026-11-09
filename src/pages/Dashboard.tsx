@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { BarList, MonthlyChart, PageHeader, Panel, Select, StatCard, Field } from "../components/ui";
-import { computeSummary, expiringItems, fmt, saleLines, saleTotal, groupSum, monthlySeries, nameOf, stockOf, supplierDebt, traderDebt } from "../calc";
+import { computeSummary, expiringBatches, fmt, saleLines, saleTotal, groupSum, monthlySeries, nameOf, stockOf, supplierDebt, traderDebt } from "../calc";
 import type { DB, Period } from "../types";
 
 export function Dashboard({ db }: { db: DB }) {
@@ -12,7 +12,7 @@ export function Dashboard({ db }: { db: DB }) {
   const topTraders = groupSum(s.S, (x) => nameOf(db.traders, x.traderId), saleTotal).slice(0, 5);
   const topProducts = groupSum(saleLines(s.S), (x) => nameOf(db.products, x.productId), (x) => x.qty * x.price).slice(0, 5);
   const low = db.products.filter((p) => stockOf(db, p.id) <= p.min);
-  const expiring = expiringItems(db);
+  const expiring = expiringBatches(db);
   const traderDebts = db.traders
     .map((t) => [`${t.name} (${t.gov})`, traderDebt(db, t.id)] as [string, number])
     .filter(([, v]) => v > 0.5).sort((a, b) => b[1] - a[1]);
@@ -51,7 +51,7 @@ export function Dashboard({ db }: { db: DB }) {
       {expiring.length > 0 && (
         <div className="alert red">
           ⏰ مبيدات قاربت على انتهاء الصلاحية (خلال 90 يوماً):{" "}
-          {expiring.slice(0, 6).map((i) => `${nameOf(db.products, i.productId)} — ${i.expiry}`).join(" • ")}
+          {expiring.slice(0, 6).map((i) => `${nameOf(db.products, i.productId)} — ${i.expiry} (متبقي ${fmt(i.remaining)})`).join(" • ")}
         </div>
       )}
 

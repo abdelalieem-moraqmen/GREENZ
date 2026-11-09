@@ -15,6 +15,12 @@ export interface Product {
   min: number; // low stock threshold
 }
 
+export interface Warehouse {
+  id: string;
+  name: string;
+  gov: string;
+}
+
 export interface SaleLine {
   productId: string;
   qty: number;
@@ -33,6 +39,7 @@ export interface Sale {
   date: string;
   traderId: string;
   gov: string;
+  warehouseId?: string;
   items: SaleLine[];
   paid: number;
   note?: string;
@@ -42,10 +49,46 @@ export interface Purchase {
   id: string;
   date: string;
   supplierId: string;
+  warehouseId?: string;
   items: PurchaseLine[];
   paid: number;
   note?: string;
 }
+
+/** مرتجع مبيعات: تاجر رجّع بضاعة (يرجع للمخزن ويقلل مديونيته). */
+export interface SalesReturn {
+  id: string;
+  date: string;
+  traderId: string;
+  warehouseId?: string;
+  items: SaleLine[];
+  note?: string;
+}
+
+/** مرتجع مشتريات: رجّعنا بضاعة للمورد (تخرج من المخزن وتقلل مستحقاته). */
+export interface PurchaseReturn {
+  id: string;
+  date: string;
+  supplierId: string;
+  warehouseId?: string;
+  items: PurchaseLine[];
+  note?: string;
+}
+
+export interface TransferLine {
+  productId: string;
+  qty: number;
+}
+
+export interface Transfer {
+  id: string;
+  date: string;
+  fromId: string; // "" = المخزن الرئيسي
+  toId: string;
+  items: TransferLine[];
+  note?: string;
+}
+
 export interface Expense {
   id: string;
   date: string;
@@ -67,19 +110,36 @@ export interface DB {
   traders: Trader[];
   suppliers: Supplier[];
   products: Product[];
+  warehouses: Warehouse[];
   sales: Sale[];
   purchases: Purchase[];
+  salesReturns: SalesReturn[];
+  purchaseReturns: PurchaseReturn[];
+  transfers: Transfer[];
   expenses: Expense[];
   payments: Payment[];
 }
 
 export type Collection = keyof DB;
 export type Period = "all" | "month" | "year";
+
+export type Role = "admin" | "accountant" | "sales" | "driver" | "pending";
+export interface Profile {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+}
+
 export type PageKey =
   | "dash"
   | "sales"
   | "purchases"
+  | "returns"
   | "expenses"
   | "traders"
   | "suppliers"
-  | "products";
+  | "products"
+  | "warehouses"
+  | "reports"
+  | "users";
