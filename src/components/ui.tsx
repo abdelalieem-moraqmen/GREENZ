@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { fmt } from "../calc";
 import { NAV_ITEMS } from "../constants";
-import type { PageKey } from "../types";
+import type { ContentPage, PageKey } from "../types";
 
 /* ---------- Sidebar ---------- */
 export function Sidebar(props: {
@@ -13,17 +13,17 @@ export function Sidebar(props: {
   roleLabel?: string;
   email?: string;
   onLogout?: () => void;
+  contentPages?: ContentPage[];
+  logoUrl?: string;
+  canExport?: boolean;
+  canImport?: boolean;
 }) {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <span className="brand-icon">🌿</span>
-        <div>
-          <b>مبيدات المصري</b>
-          <small>إدارة المحل والتوزيع</small>
-        </div>
+        <img className="brand-logo" src={props.logoUrl ?? "/logo.png"} alt="شعار الشركة" />
       </div>
-      <nav>
+      <nav className="sidebar-nav">
         {NAV_ITEMS.filter((n) => !props.pages || props.pages.includes(n.key)).map((n) => (
           <button
             key={n.key}
@@ -33,16 +33,25 @@ export function Sidebar(props: {
             <span>{n.icon}</span> {n.label}
           </button>
         ))}
+        {props.contentPages?.map((item) => (
+          <button
+            key={item.id}
+            className={"nav-item" + (`content:${item.id}` === props.page ? " active" : "")}
+            onClick={() => props.onChange(`content:${item.id}`)}
+          >
+            <span>📄</span> {item.title}
+          </button>
+        ))}
       </nav>
       <div className="side-footer">
         {props.email && <div className="user-box">👤 {props.email}{props.roleLabel && <><br />🎖 {props.roleLabel}</>}</div>}
         {props.onLogout && <button className="ghost" onClick={props.onLogout}>🚪 تسجيل الخروج</button>}
-        <button className="ghost" onClick={props.onExport}>⬇ نسخة احتياطية</button>
-        <label className="ghost">
+        {props.canExport && <button className="ghost" onClick={props.onExport}>⬇ نسخة احتياطية</button>}
+        {props.canImport && <label className="ghost">
           ⬆ استرجاع
           <input type="file" accept=".json" hidden
             onChange={(e) => e.target.files?.[0] && props.onImport(e.target.files[0])} />
-        </label>
+        </label>}
       </div>
     </aside>
   );

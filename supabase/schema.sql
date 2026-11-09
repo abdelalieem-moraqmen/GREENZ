@@ -1,4 +1,4 @@
--- GREENZ — Supabase schema
+-- المميز للخدمات الزراعية — Supabase schema
 -- شغّل الملف كله في: Supabase Dashboard → SQL Editor → New query → Run
 
 create table if not exists public.traders (

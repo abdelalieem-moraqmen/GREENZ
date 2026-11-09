@@ -65,9 +65,7 @@ export function AuthScreen() {
   return (
     <div className="auth-wrap">
       <form className="auth-card" onSubmit={submit}>
-        <div className="auth-logo">🌿</div>
-        <h1>GREENZ</h1>
-        <p>إدارة محل المبيدات والتوزيع</p>
+        <img className="auth-logo" src="/logo.png" alt="شعار المميز للخدمات الزراعية" />
 
         <input type="email" placeholder="الإيميل" required autoComplete="email" dir="ltr"
           value={email} onChange={(e) => setEmail(e.target.value)} />

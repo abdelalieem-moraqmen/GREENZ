@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { BarList, MonthlyChart, PageHeader, Panel, Select, StatCard, Field } from "../components/ui";
 import { computeSummary, expiringBatches, fmt, saleLines, saleTotal, groupSum, monthlySeries, nameOf, stockOf, supplierDebt, traderDebt } from "../calc";
-import type { DB, Period } from "../types";
+import type { CompanySettings, DB, Period } from "../types";
 
-export function Dashboard({ db }: { db: DB }) {
+export function Dashboard({ db, settings }: { db: DB; settings: CompanySettings }) {
   const [period, setPeriod] = useState<Period>("all");
   const s = computeSummary(db, period);
 
@@ -28,6 +28,37 @@ export function Dashboard({ db }: { db: DB }) {
             options={[{ value: "all", label: "الكل" }, { value: "month", label: "هذا الشهر" }, { value: "year", label: "هذه السنة" }]} />
         </Field>
       </PageHeader>
+
+      <section className="brand-hero" aria-label={settings.brandName}>
+        <div className="brand-hero-copy">
+          <span className="brand-hero-eyebrow">{settings.brandName}</span>
+          <h2>{settings.tagline}</h2>
+          <p>{settings.intro}</p>
+          {!!settings.whatsapp.replace(/\D/g, "") && (
+            <a className="brand-whatsapp" href={`https://wa.me/${settings.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">
+              <span aria-hidden="true">☏</span>
+              <span>تواصل مع صاحب الشركة على واتساب</span>
+              <b dir="ltr">{settings.whatsapp.startsWith("+") ? settings.whatsapp : `+${settings.whatsapp.replace(/\D/g, "")}`}</b>
+            </a>
+          )}
+          <div className="brand-hero-services">
+            {settings.services.map((service, index) => (
+              <div className="brand-service" key={`${service.title}-${index}`}>
+                <span aria-hidden="true">{service.icon}</span>
+                <div><b>{service.title}</b><small>{service.description}</small></div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="brand-hero-art">
+          <img src={settings.bannerUrl || "/banner.jpg"} alt={`بانر ${settings.brandName}`}
+            onError={(event) => {
+              const image = event.currentTarget;
+              if (!image.src.endsWith("/banner.jpg")) image.src = "/banner.jpg";
+              else image.hidden = true;
+            }} />
+        </div>
+      </section>
 
       <div className="stats">
         <StatCard icon="💰" label="إجمالي الإيرادات" value={s.revenue} tone="green" />

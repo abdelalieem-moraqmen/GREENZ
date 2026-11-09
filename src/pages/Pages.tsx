@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { DataTable, PageHeader, Panel, type Column } from "../components/ui";
+import { SpreadsheetTools } from "../components/SpreadsheetTools";
 import { ExpenseForm, PartyForm, ProductForm, PurchaseForm, SaleForm } from "../components/forms";
 import {
   avgCost, fmt, nameOf, purchaseDue, purchaseTotal, saleDue, saleTotal, stockOf, supplierDebt, today, traderDebt,
@@ -18,6 +19,9 @@ function useEditor<T extends { id: string }>(store: Store, c: Collection, rows: 
   return {
     editing,
     key: editingId ?? "new",
+    canCreate: store.can(c, "create"),
+    canUpdate: store.can(c, "update"),
+    canDelete: store.can(c, "delete"),
     startEdit: (r: T) => { setEditingId(r.id); window.scrollTo({ top: 0, behavior: "smooth" }); },
     cancel: () => setEditingId(null),
     save: (data: object) => {
@@ -46,14 +50,16 @@ export function SalesPage({ store }: { store: Store }) {
   ];
   return (
     <>
-      <PageHeader title="المبيعات" subtitle="فواتير البيع للتجار في المحافظات" />
-      <Panel title={ed.editing ? "تعديل فاتورة بيع" : "فاتورة بيع جديدة"}>
+      <PageHeader title="المبيعات" subtitle="فواتير البيع للتجار في المحافظات">
+        <SpreadsheetTools store={store} collections={["sales"]} />
+      </PageHeader>
+      {(ed.editing ? ed.canUpdate : ed.canCreate) && <Panel title={ed.editing ? "تعديل فاتورة بيع" : "فاتورة بيع جديدة"}>
         <EditBanner on={!!ed.editing} />
         <SaleForm key={ed.key} db={db} initial={ed.editing} onSave={ed.save} onCancel={ed.cancel} />
-      </Panel>
+      </Panel>}
       <Panel>
-        <DataTable columns={cols} rows={byDateDesc(db.sales)} onEdit={ed.startEdit}
-          onDelete={(id) => remove("sales", id)}
+        <DataTable columns={cols} rows={byDateDesc(db.sales)} onEdit={ed.canUpdate ? ed.startEdit : undefined}
+          onDelete={ed.canDelete ? (id) => remove("sales", id) : undefined}
           extraActions={(r) => <button className="btn sm print" onClick={() => printInvoice(r, db)}>🖨 طباعة</button>} />
       </Panel>
     </>
@@ -75,12 +81,14 @@ export function PurchasesPage({ store }: { store: Store }) {
   ];
   return (
     <>
-      <PageHeader title="المشتريات" subtitle="فواتير الشراء من الموردين (مع تاريخ الصلاحية لكل صنف)" />
-      <Panel title={ed.editing ? "تعديل فاتورة شراء" : "فاتورة شراء جديدة"}>
+      <PageHeader title="المشتريات" subtitle="فواتير الشراء من الموردين (مع تاريخ الصلاحية لكل صنف)">
+        <SpreadsheetTools store={store} collections={["purchases"]} />
+      </PageHeader>
+      {(ed.editing ? ed.canUpdate : ed.canCreate) && <Panel title={ed.editing ? "تعديل فاتورة شراء" : "فاتورة شراء جديدة"}>
         <EditBanner on={!!ed.editing} />
         <PurchaseForm key={ed.key} db={db} initial={ed.editing} onSave={ed.save} onCancel={ed.cancel} />
-      </Panel>
-      <Panel><DataTable columns={cols} rows={byDateDesc(db.purchases)} onEdit={ed.startEdit} onDelete={(id) => remove("purchases", id)} /></Panel>
+      </Panel>}
+      <Panel><DataTable columns={cols} rows={byDateDesc(db.purchases)} onEdit={ed.canUpdate ? ed.startEdit : undefined} onDelete={ed.canDelete ? (id) => remove("purchases", id) : undefined} /></Panel>
     </>
   );
 }
@@ -97,12 +105,14 @@ export function ExpensesPage({ store }: { store: Store }) {
   ];
   return (
     <>
-      <PageHeader title="المصروفات" subtitle="بنزين، سائق، صيانة، إيجار وغيره" />
-      <Panel title={ed.editing ? "تعديل مصروف" : "تسجيل مصروف"}>
+      <PageHeader title="المصروفات" subtitle="بنزين، سائق، صيانة، إيجار وغيره">
+        <SpreadsheetTools store={store} collections={["expenses"]} />
+      </PageHeader>
+      {(ed.editing ? ed.canUpdate : ed.canCreate) && <Panel title={ed.editing ? "تعديل مصروف" : "تسجيل مصروف"}>
         <EditBanner on={!!ed.editing} />
         <ExpenseForm key={ed.key} initial={ed.editing} onSave={ed.save} onCancel={ed.cancel} />
-      </Panel>
-      <Panel><DataTable columns={cols} rows={byDateDesc(db.expenses)} onEdit={ed.startEdit} onDelete={(id) => remove("expenses", id)} /></Panel>
+      </Panel>}
+      <Panel><DataTable columns={cols} rows={byDateDesc(db.expenses)} onEdit={ed.canUpdate ? ed.startEdit : undefined} onDelete={ed.canDelete ? (id) => remove("expenses", id) : undefined} /></Panel>
     </>
   );
 }
@@ -116,8 +126,18 @@ export function PartiesPage({ store, kind }: { store: Store; kind: "traders" | "
   const debt = (id: string) => (isTrader ? traderDebt(db, id) : supplierDebt(db, id));
 
   const pay = (id: string) => {
-    const amount = Number(prompt("المبلغ:"));
-    if (amount > 0) add("payments", { date: today(), type, partyId: id, amount });
+    const rawAmount = prompt("المبلغ:");
+    if (rawAmount === null) return;
+    const amount = Number(rawAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return alert("أدخل مبلغاً أكبر من صفر.");
+    add("payments", { date: today(), type, partyId: id, amount });
+  };
+  const editPayment = (payment: Payment) => {
+    const rawAmount = prompt("المبلغ الجديد:", String(payment.amount));
+    if (rawAmount === null) return;
+    const amount = Number(rawAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return alert("أدخل مبلغاً أكبر من صفر.");
+    store.update("payments", payment.id, { ...payment, amount });
   };
 
   const cols: Column<Party>[] = [
@@ -133,23 +153,26 @@ export function PartiesPage({ store, kind }: { store: Store; kind: "traders" | "
   ];
   return (
     <>
-      <PageHeader title={isTrader ? "التجار" : "الموردون"} subtitle={isTrader ? "عملاؤك في المحافظات" : "من بتشتري منهم"} />
-      <Panel title={ed.editing ? `تعديل ${label}` : `إضافة ${label}`}>
+      <PageHeader title={isTrader ? "التجار" : "الموردون"} subtitle={isTrader ? "عملاؤك في المحافظات" : "من بتشتري منهم"}>
+        <SpreadsheetTools store={store} collections={[kind, "payments"]} />
+      </PageHeader>
+      {(ed.editing ? ed.canUpdate : ed.canCreate) && <Panel title={ed.editing ? `تعديل ${label}` : `إضافة ${label}`}>
         <EditBanner on={!!ed.editing} />
         <PartyForm key={ed.key} initial={ed.editing} onSave={ed.save} onCancel={ed.cancel} label={label} />
-      </Panel>
+      </Panel>}
       <Panel>
-        <DataTable columns={cols} rows={db[kind]} onEdit={ed.startEdit} onDelete={(id) => remove(kind, id)}
+        <DataTable columns={cols} rows={db[kind]} onEdit={ed.canUpdate ? ed.startEdit : undefined} onDelete={ed.canDelete ? (id) => remove(kind, id) : undefined}
           extraActions={(r) => (
             <>
-              <button className="btn sm blue" onClick={() => pay(r.id)}>تسجيل دفعة</button>
+              {store.can("payments", "create") && <button className="btn sm blue" onClick={() => pay(r.id)}>تسجيل دفعة</button>}
               <button className="btn sm print" onClick={() => printStatement(r, kind, db)}>📄 كشف حساب</button>
             </>
           )} />
       </Panel>
       <Panel title="سجل الدفعات">
         <DataTable columns={payCols} rows={byDateDesc(db.payments.filter((p) => p.type === type))}
-          onDelete={(id) => remove("payments", id)} />
+          onEdit={store.can("payments", "update") ? editPayment : undefined}
+          onDelete={store.can("payments", "delete") ? (id) => remove("payments", id) : undefined} />
       </Panel>
     </>
   );
@@ -168,12 +191,14 @@ export function ProductsPage({ store }: { store: Store }) {
   ];
   return (
     <>
-      <PageHeader title="المخزون" subtitle="الأصناف والكميات المتاحة" />
-      <Panel title={ed.editing ? "تعديل صنف" : "إضافة صنف"}>
+      <PageHeader title="المخزون" subtitle="الأصناف والكميات المتاحة">
+        <SpreadsheetTools store={store} collections={["products"]} />
+      </PageHeader>
+      {(ed.editing ? ed.canUpdate : ed.canCreate) && <Panel title={ed.editing ? "تعديل صنف" : "إضافة صنف"}>
         <EditBanner on={!!ed.editing} />
         <ProductForm key={ed.key} initial={ed.editing} onSave={ed.save} onCancel={ed.cancel} />
-      </Panel>
-      <Panel><DataTable columns={cols} rows={db.products} onEdit={ed.startEdit} onDelete={(id) => remove("products", id)} /></Panel>
+      </Panel>}
+      <Panel><DataTable columns={cols} rows={db.products} onEdit={ed.canUpdate ? ed.startEdit : undefined} onDelete={ed.canDelete ? (id) => remove("products", id) : undefined} /></Panel>
     </>
   );
 }

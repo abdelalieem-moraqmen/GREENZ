@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { GOVS, EXPENSE_CATEGORIES, UNITS, MAIN_WAREHOUSE } from "../constants";
 import { Field, Select } from "./ui";
-import { fmt, sum, today } from "../calc";
+import { fmt, stockInWarehouse, sum, today } from "../calc";
 import type { DB, Expense, Party, Product, Purchase, PurchaseLine, PurchaseReturn, Sale, SaleLine, SalesReturn, Transfer, Warehouse } from "../types";
 
 /** خصائص مشتركة لكل النماذج: قيمة ابتدائية (للتعديل) + حفظ + إلغاء. */
@@ -80,18 +80,48 @@ function LinesEditor(props: {
 
 export function SaleForm({ db, initial, onSave, onCancel }: FormProps<Sale> & { db: DB }) {
   const first = db.products[0];
+  const [validationError, setValidationError] = useState("");
   const [lines, setLines] = useState<Line[]>(
     initial ? initial.items.map((i) => ({ productId: i.productId, qty: i.qty, unitPrice: i.price }))
             : [{ productId: first.id, qty: "", unitPrice: first.price || "" }]);
   const total = sum(lines, (l) => (+l.qty || 0) * (+l.unitPrice || 0));
 
   return (
-    <form className="invoice-form" onSubmit={(e) => {
+    <form className="invoice-form" onChange={() => setValidationError("")} onSubmit={(e) => {
       const f = readForm(e);
-      const items: SaleLine[] = lines.filter((l) => +l.qty > 0)
-        .map((l) => ({ productId: l.productId, qty: +l.qty, price: +l.unitPrice || 0 }));
-      if (!items.length) return alert("أضف صنفاً بكمية صحيحة");
-      onSave({ date: f.date as string, traderId: f.traderId as string, warehouseId: f.warehouseId as string, gov: f.gov as string, paid: f.paid as number, note: f.note as string, items });
+      const activeLines = lines.filter((l) => l.qty !== "");
+      if (activeLines.some((l) => !Number.isFinite(+l.qty) || +l.qty <= 0))
+        return setValidationError("تأكد أن كمية كل صنف أكبر من صفر.");
+      if (activeLines.some((l) => !Number.isFinite(+l.unitPrice) || +l.unitPrice < 0))
+        return setValidationError("سعر البيع لا يمكن أن يكون سالباً.");
+      const items: SaleLine[] = activeLines.map((l) => ({
+        productId: l.productId, qty: +l.qty, price: +l.unitPrice,
+      }));
+      if (!items.length) return setValidationError("أضف صنفاً واحداً على الأقل بكمية صحيحة.");
+
+      const paid = f.paid as number;
+      if (!Number.isFinite(paid) || paid < 0 || paid > total)
+        return setValidationError("المدفوع يجب أن يكون بين صفر وإجمالي الفاتورة.");
+
+      const warehouseId = String(f.warehouseId ?? "");
+      const requestedByProduct = new Map<string, number>();
+      items.forEach((item) => requestedByProduct.set(
+        item.productId, (requestedByProduct.get(item.productId) ?? 0) + item.qty,
+      ));
+      for (const [productId, requested] of requestedByProduct) {
+        const returnedByEdit = initial && (initial.warehouseId ?? "") === warehouseId
+          ? sum(initial.items.filter((item) => item.productId === productId), (item) => item.qty)
+          : 0;
+        const available = stockInWarehouse(db, productId, warehouseId) + returnedByEdit;
+        if (requested > available) {
+          const productName = db.products.find((product) => product.id === productId)?.name ?? "الصنف";
+          return setValidationError(
+            `الكمية المطلوبة من "${productName}" (${fmt(requested)}) أكبر من المتاح في هذا المخزن (${fmt(Math.max(0, available))}).`,
+          );
+        }
+      }
+
+      onSave({ date: f.date as string, traderId: f.traderId as string, warehouseId, gov: f.gov as string, paid, note: f.note as string, items });
       if (!initial) setLines([{ productId: first.id, qty: "", unitPrice: first.price || "" }]);
     }}>
       <div className="form-grid">
@@ -99,12 +129,13 @@ export function SaleForm({ db, initial, onSave, onCancel }: FormProps<Sale> & { 
         <Field label="التاجر"><Select name="traderId" options={opt(db.traders)} defaultValue={initial?.traderId} /></Field>
         <Field label="المحافظة"><Select name="gov" options={GOVS} defaultValue={initial?.gov} /></Field>
         <Field label="المخزن"><Select name="warehouseId" options={whOpts(db)} defaultValue={initial?.warehouseId ?? ""} /></Field>
-        <NumField label="المدفوع الآن" name="paid" value={initial?.paid ?? 0} />
+        <Field label="المدفوع الآن"><input type="number" step="any" min="0" max={total} name="paid" defaultValue={initial?.paid ?? 0} /></Field>
         <Field label="ملاحظة"><input name="note" defaultValue={initial?.note} /></Field>
       </div>
       <LinesEditor db={db} lines={lines} onChange={setLines} priceLabel="سعر الوحدة"
         priceFor={(pid) => db.products.find((p) => p.id === pid)?.price ?? 0} />
       <div className="invoice-total">إجمالي الفاتورة: <b>{fmt(total)} ج</b></div>
+      {validationError && <div className="alert red" role="alert">{validationError}</div>}
       <Actions editing={!!initial} onCancel={onCancel} label="حفظ الفاتورة" />
     </form>
   );

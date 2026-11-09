@@ -123,12 +123,36 @@ export interface DB {
 export type Collection = keyof DB;
 export type Period = "all" | "month" | "year";
 
-export type Role = "admin" | "accountant" | "sales" | "driver" | "pending";
+export type Role = string;
 export interface Profile {
   id: string;
   email: string;
   name: string;
   role: Role;
+}
+
+export interface CompanyService {
+  icon: string;
+  title: string;
+  description: string;
+}
+
+export interface CompanySettings {
+  brandName: string;
+  tagline: string;
+  intro: string;
+  whatsapp: string;
+  logoUrl: string;
+  bannerUrl: string;
+  primaryColor: string;
+  services: CompanyService[];
+}
+
+export interface ContentPage {
+  id: string;
+  title: string;
+  body: string;
+  published: boolean;
 }
 
 export type PageKey =
@@ -142,4 +166,7 @@ export type PageKey =
   | "products"
   | "warehouses"
   | "reports"
-  | "users";
+  | "users"
+  | "permissions"
+  | "content"
+  | `content:${string}`;

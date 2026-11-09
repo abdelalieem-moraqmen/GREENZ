@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { DataTable, Field, PageHeader, Panel, Select, type Column } from "../components/ui";
+import { SpreadsheetTools } from "../components/SpreadsheetTools";
 import { ReturnForm, TransferForm, WarehouseForm } from "../components/forms";
 import { fmt, inPeriod, nameOf, purchaseTotal, saleTotal, stockInWarehouse } from "../calc";
 import { MAIN_WAREHOUSE, ROLE_LABELS } from "../constants";
@@ -16,6 +17,9 @@ function useEditor<T extends { id: string }>(store: Store, c: Parameters<Store["
   const editing = rows.find((r) => r.id === editingId);
   return {
     editing, key: editingId ?? "new",
+    canCreate: store.can(c, "create"),
+    canUpdate: store.can(c, "update"),
+    canDelete: store.can(c, "delete"),
     startEdit: (r: T) => { setEditingId(r.id); window.scrollTo({ top: 0, behavior: "smooth" }); },
     cancel: () => setEditingId(null),
     save: (data: object) => {
@@ -66,23 +70,25 @@ export function ReturnsPage({ store }: { store: Store }) {
 
   return (
     <>
-      <PageHeader title="المرتجعات" subtitle="المرتجع بيرجّع الكمية للمخزن (أو يخرجها) ويقلل المديونية تلقائياً" />
+      <PageHeader title="المرتجعات" subtitle="المرتجع بيرجّع الكمية للمخزن (أو يخرجها) ويقلل المديونية تلقائياً">
+        <SpreadsheetTools store={store} collections={["salesReturns", "purchaseReturns"]} />
+      </PageHeader>
       {tabs}
       {isSales ? (
         <>
-          <Panel title={sEd.editing ? "تعديل مرتجع مبيعات" : "مرتجع مبيعات جديد"}>
+          {(sEd.editing ? sEd.canUpdate : sEd.canCreate) && <Panel title={sEd.editing ? "تعديل مرتجع مبيعات" : "مرتجع مبيعات جديد"}>
             <EditBanner on={!!sEd.editing} />
             <ReturnForm key={"s" + sEd.key} db={db} kind="sales" initial={sEd.editing} onSave={sEd.save} onCancel={sEd.cancel} />
-          </Panel>
-          <Panel><DataTable columns={sCols} rows={byDateDesc(db.salesReturns)} onEdit={sEd.startEdit} onDelete={(id) => remove("salesReturns", id)} /></Panel>
+          </Panel>}
+          <Panel><DataTable columns={sCols} rows={byDateDesc(db.salesReturns)} onEdit={sEd.canUpdate ? sEd.startEdit : undefined} onDelete={sEd.canDelete ? (id) => remove("salesReturns", id) : undefined} /></Panel>
         </>
       ) : (
         <>
-          <Panel title={pEd.editing ? "تعديل مرتجع مشتريات" : "مرتجع مشتريات جديد"}>
+          {(pEd.editing ? pEd.canUpdate : pEd.canCreate) && <Panel title={pEd.editing ? "تعديل مرتجع مشتريات" : "مرتجع مشتريات جديد"}>
             <EditBanner on={!!pEd.editing} />
             <ReturnForm key={"p" + pEd.key} db={db} kind="purchases" initial={pEd.editing} onSave={pEd.save} onCancel={pEd.cancel} />
-          </Panel>
-          <Panel><DataTable columns={pCols} rows={byDateDesc(db.purchaseReturns)} onEdit={pEd.startEdit} onDelete={(id) => remove("purchaseReturns", id)} /></Panel>
+          </Panel>}
+          <Panel><DataTable columns={pCols} rows={byDateDesc(db.purchaseReturns)} onEdit={pEd.canUpdate ? pEd.startEdit : undefined} onDelete={pEd.canDelete ? (id) => remove("purchaseReturns", id) : undefined} /></Panel>
         </>
       )}
     </>
@@ -110,7 +116,9 @@ export function WarehousesPage({ store }: { store: Store }) {
 
   return (
     <>
-      <PageHeader title="المخازن والتحويلات" subtitle="المخزن الرئيسي + أي مخازن أو عربيات تضيفها" />
+      <PageHeader title="المخازن والتحويلات" subtitle="المخزن الرئيسي + أي مخازن أو عربيات تضيفها">
+        <SpreadsheetTools store={store} collections={["warehouses", "transfers"]} />
+      </PageHeader>
       <Panel title="الكميات في كل مخزن">
         {!db.products.length ? <p className="empty">أضف أصنافاً أولاً</p> : (
           <div className="table-wrap"><table>
@@ -126,19 +134,19 @@ export function WarehousesPage({ store }: { store: Store }) {
         )}
       </Panel>
 
-      <Panel title={wEd.editing ? "تعديل مخزن" : "إضافة مخزن (أو عربية توزيع)"}>
+      {(wEd.editing ? wEd.canUpdate : wEd.canCreate) && <Panel title={wEd.editing ? "تعديل مخزن" : "إضافة مخزن (أو عربية توزيع)"}>
         <EditBanner on={!!wEd.editing} />
         <WarehouseForm key={wEd.key} initial={wEd.editing} onSave={wEd.save} onCancel={wEd.cancel} />
-      </Panel>
-      <Panel><DataTable columns={wCols} rows={db.warehouses} onEdit={wEd.startEdit} onDelete={(id) => remove("warehouses", id)} /></Panel>
+      </Panel>}
+      <Panel><DataTable columns={wCols} rows={db.warehouses} onEdit={wEd.canUpdate ? wEd.startEdit : undefined} onDelete={wEd.canDelete ? (id) => remove("warehouses", id) : undefined} /></Panel>
 
       {db.warehouses.length > 0 && db.products.length > 0 && (
         <>
-          <Panel title={tEd.editing ? "تعديل تحويل" : "تحويل بين المخازن"}>
+          {(tEd.editing ? tEd.canUpdate : tEd.canCreate) && <Panel title={tEd.editing ? "تعديل تحويل" : "تحويل بين المخازن"}>
             <EditBanner on={!!tEd.editing} />
             <TransferForm key={tEd.key} db={db} initial={tEd.editing} onSave={tEd.save} onCancel={tEd.cancel} />
-          </Panel>
-          <Panel title="سجل التحويلات"><DataTable columns={tCols} rows={byDateDesc(db.transfers)} onEdit={tEd.startEdit} onDelete={(id) => remove("transfers", id)} /></Panel>
+          </Panel>}
+          <Panel title="سجل التحويلات"><DataTable columns={tCols} rows={byDateDesc(db.transfers)} onEdit={tEd.canUpdate ? tEd.startEdit : undefined} onDelete={tEd.canDelete ? (id) => remove("transfers", id) : undefined} /></Panel>
         </>
       )}
     </>

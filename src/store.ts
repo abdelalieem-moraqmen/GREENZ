@@ -45,22 +45,25 @@ export function readLocalData(): DB | null {
   }
 }
 
-export function useDB() {
+export function useDB(permissions: string[], superAdmin = false) {
   const [db, setDb] = useState<DB>(empty);
   const [loading, setLoading] = useState(true);
+  const can = useCallback((c: Collection, action: "read" | "create" | "update" | "delete") =>
+    superAdmin || permissions.includes(`${tbl(c)}.${action}`), [permissions, superAdmin]);
 
   const reload = useCallback(async () => {
-    const results = await Promise.all(TABLES.map((t) => supabase.from(tbl(t)).select("*")));
-    const next: any = { ...empty };
+    const readable = TABLES.filter((t) => can(t, "read"));
+    const results = await Promise.all(readable.map((t) => supabase.from(tbl(t)).select("*")));
+    const next: DB = { ...empty };
     const failed: string[] = [];
     results.forEach((r, i) => {
-      if (r.error) failed.push(TABLES[i]);
-      else next[TABLES[i]] = (r.data ?? []).map((row) => toCamel(row));
+      if (r.error) failed.push(readable[i]);
+      else (next[readable[i]] as unknown[]) = (r.data ?? []).map((row) => toCamel(row));
     });
-    if (failed.length) alert(`تعذر تحميل: ${failed.join("، ")}\nشغّل ملفات SQL (schema.sql ثم schema_v2.sql) في Supabase ثم حدّث الصفحة.`);
+    if (failed.length) alert(`تعذر تحميل: ${failed.join("، ")}\nتحقق من صلاحيات الحساب وشغّل ترحيلات Supabase من schema.sql إلى schema_v5.sql.`);
     setDb(next);
     setLoading(false);
-  }, []);
+  }, [can, permissions]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -71,25 +74,29 @@ export function useDB() {
   }, [reload]);
 
   const add = useCallback(<K extends Collection>(c: K, item: Omit<DB[K][number], "id">) => {
+    if (!can(c, "create")) { alert("ليس لديك صلاحية إضافة هذا السجل."); return; }
     const row = { ...item, id: uid() };
     setDb((d) => ({ ...d, [c]: [...d[c], row] }));
     run(supabase.from(tbl(c)).insert(toSnake(row)));
-  }, [run]);
+  }, [can, run]);
 
   const update = useCallback((c: Collection, id: string, item: object) => {
+    if (!can(c, "update")) { alert("ليس لديك صلاحية تعديل هذا السجل."); return; }
     const row = { ...item, id };
     setDb((d) => ({ ...d, [c]: (d[c] as { id: string }[]).map((x) => (x.id === id ? row : x)) }));
     const { id: _id, ...patch } = row;
     run(supabase.from(tbl(c)).update(toSnake(patch)).eq("id", id));
-  }, [run]);
+  }, [can, run]);
 
   const remove = useCallback((c: Collection, id: string) => {
+    if (!can(c, "delete")) { alert("ليس لديك صلاحية حذف هذا السجل."); return; }
     setDb((d) => ({ ...d, [c]: (d[c] as { id: string }[]).filter((x) => x.id !== id) }));
     run(supabase.from(tbl(c)).delete().eq("id", id));
-  }, [run]);
+  }, [can, run]);
 
   /** استيراد (نسخة احتياطية أو بيانات المتصفح القديمة) — يدمج ولا يمسح. */
   const importAll = useCallback(async (raw: DB) => {
+    if (!superAdmin) { alert("استيراد النسخ الاحتياطية متاح للسوبر أدمن فقط."); return; }
     const data = migrate(raw);
     for (const t of TABLES) {
       if (!data[t].length) continue;
@@ -97,9 +104,45 @@ export function useDB() {
       if (error) { alert(`فشل استيراد ${t}: ${error.message}`); break; }
     }
     await reload();
-  }, [reload]);
+  }, [reload, superAdmin]);
 
-  return { db, loading, add, update, remove, importAll };
+  const importRows = useCallback(async (c: Collection, rows: Record<string, unknown>[]) => {
+    if (!can(c, "read")) throw new Error(`ليس لديك صلاحية قراءة قسم ${c}.`);
+    if (rows.length > 5000) throw new Error("لا يمكن استيراد أكثر من 5000 صف في المرة الواحدة.");
+    const currentIds = new Set((db[c] as { id: string }[]).map((row) => row.id));
+    let created = 0;
+    let updated = 0;
+    try {
+      for (const [index, raw] of rows.entries()) {
+        const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : uid();
+        const exists = currentIds.has(id);
+        const row = { ...raw, id };
+        let result;
+        if (exists) {
+          if (!can(c, "update")) throw new Error(`لا تملك صلاحية تعديل الصف الموجود في السطر ${index + 2}.`);
+          const current = (db[c] as { id: string }[]).find((item) => item.id === id);
+          result = await supabase.from(tbl(c)).update(toSnake({ ...current, ...row })).eq("id", id);
+          if (!result.error) updated += 1;
+        } else {
+          if (!can(c, "create")) throw new Error(`لا تملك صلاحية إضافة الصف الجديد في السطر ${index + 2}.`);
+          result = await supabase.from(tbl(c)).insert(toSnake(row));
+          if (!result.error) {
+            created += 1;
+            currentIds.add(id);
+          }
+        }
+        if (result.error) throw new Error(`فشل استيراد الصف ${index + 2}: ${result.error.message}`);
+      }
+    } catch (error) {
+      await reload();
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`${detail} (تم حفظ ${created} جديد وتعديل ${updated} قبل الخطأ.)`);
+    }
+    await reload();
+    return { created, updated };
+  }, [can, db, reload]);
+
+  return { db, loading, add, update, remove, importAll, importRows, can };
 }
 
 export type Store = ReturnType<typeof useDB>;

@@ -25,10 +25,12 @@ export const NAV_ITEMS: { key: PageKey; label: string; icon: string }[] = [
   { key: "products", label: "الأصناف والمخزون", icon: "📦" },
   { key: "warehouses", label: "المخازن والتحويلات", icon: "🏭" },
   { key: "reports", label: "التقارير", icon: "📑" },
-  { key: "users", label: "المستخدمون", icon: "👥" },
+  { key: "permissions", label: "الأدوار والصلاحيات", icon: "🔐" },
+  { key: "content", label: "إدارة المحتوى", icon: "📝" },
 ];
 
-export const ROLE_LABELS: Record<Role, string> = {
+export const ROLE_LABELS: Record<string, string> = {
+  superadmin: "سوبر أدمن",
   admin: "مدير",
   accountant: "محاسب",
   sales: "مندوب مبيعات",
@@ -36,14 +38,30 @@ export const ROLE_LABELS: Record<Role, string> = {
   pending: "بانتظار الموافقة",
 };
 
-/** الصفحات المتاحة لكل دور (نفس القواعد مطبّقة في قاعدة البيانات عبر RLS). */
-export const ROLE_PAGES: Record<Role, PageKey[]> = {
-  admin: ["dash", "sales", "purchases", "returns", "expenses", "traders", "suppliers", "products", "warehouses", "reports", "users"],
-  accountant: ["dash", "sales", "purchases", "returns", "expenses", "traders", "suppliers", "products", "warehouses", "reports"],
-  sales: ["sales", "returns", "traders", "products"],
-  driver: ["sales", "expenses", "products"],
-  pending: [],
+const PAGE_PERMISSIONS: Partial<Record<PageKey, string>> = {
+  dash: "dashboard.read",
+  sales: "sales.read",
+  purchases: "purchases.read",
+  returns: "sales_returns.read",
+  expenses: "expenses.read",
+  traders: "traders.read",
+  suppliers: "suppliers.read",
+  products: "products.read",
+  warehouses: "warehouses.read",
+  reports: "reports.read",
+  permissions: "roles.manage",
+  content: "content.manage",
 };
+
+export function pagesForRole(role: Role, permissions: string[]): PageKey[] {
+  if (role === "superadmin") return NAV_ITEMS.map((item) => item.key);
+  return NAV_ITEMS.filter((item) =>
+    item.key !== "users" && item.key !== "permissions" &&
+    (item.key === "returns"
+      ? permissions.includes("sales_returns.read") || permissions.includes("purchase_returns.read")
+      : permissions.includes(PAGE_PERMISSIONS[item.key] ?? ""))
+  ).map((item) => item.key);
+}
 
 /** اسم الجدول في قاعدة البيانات لكل مجموعة بيانات. */
 export const TABLE_NAMES: Record<Collection, string> = {
