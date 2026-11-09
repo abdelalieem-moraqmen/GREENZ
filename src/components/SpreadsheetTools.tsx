@@ -69,6 +69,8 @@ export function SpreadsheetTools({ store, collections }: { store: Store; collect
           <button type="button" className="btn sm primary" disabled={busy} onClick={() => fileInput.current?.click()}>⬆ استيراد Excel</button>
           <input ref={fileInput} className="spreadsheet-file" type="file" accept=".xlsx" disabled={busy}
             onChange={(event) => void importData(event.target.files?.[0])} />
+          {collections.some((collection) => ["products", "traders", "suppliers"].includes(collection)) &&
+            <small className="spreadsheet-hint">يدعم استيراد أوراق المخزن والعملاء والموردين مع الأكواد والأرصدة الافتتاحية.</small>}
         </>
       )}
       {message && <span className="spreadsheet-message" role="status">{message}</span>}

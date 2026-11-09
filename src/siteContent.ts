@@ -15,6 +15,13 @@ export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
     { icon: "🧪", title: "مبيدات وأسمدة", description: "حلول متكاملة للمحاصيل" },
     { icon: "🌾", title: "استشارات زراعية", description: "دعم وخبرة في كل خطوة" },
   ],
+  landingSections: {
+    servicesTitle: "كل احتياجات أرضك في مكان واحد",
+    servicesIntro: "اختيارات موثوقة وخبرة تساعدك على رعاية محصولك من بداية الموسم حتى الحصاد.",
+    aboutTitle: "نزرع الثقة قبل كل شيء",
+    contactTitle: "جاهز لموسم زراعي أفضل؟",
+    contactIntro: "تواصل مع فريق المميز للخدمات الزراعية، وسنساعدك في اختيار الحل المناسب.",
+  },
 };
 
 const fromSettingsRow = (row: Record<string, unknown>): CompanySettings => ({
@@ -26,11 +33,16 @@ const fromSettingsRow = (row: Record<string, unknown>): CompanySettings => ({
   bannerUrl: String(row.banner_url ?? DEFAULT_COMPANY_SETTINGS.bannerUrl),
   primaryColor: String(row.primary_color ?? DEFAULT_COMPANY_SETTINGS.primaryColor),
   services: Array.isArray(row.services) ? row.services as CompanySettings["services"] : DEFAULT_COMPANY_SETTINGS.services,
+  landingSections: row.landing_sections && typeof row.landing_sections === "object"
+    ? { ...DEFAULT_COMPANY_SETTINGS.landingSections, ...row.landing_sections as CompanySettings["landingSections"] }
+    : DEFAULT_COMPANY_SETTINGS.landingSections,
 });
 
 export async function loadSiteContent() {
   const [settingsResult, pagesResult] = await Promise.all([
-    supabase.from("company_settings").select("*").eq("id", "main").maybeSingle(),
+    supabase.from("company_settings")
+      .select("brand_name, tagline, intro, whatsapp, logo_url, banner_url, primary_color, services, landing_sections")
+      .eq("id", "main").maybeSingle(),
     supabase.from("content_pages").select("id, title, body, published").order("created_at"),
   ]);
   if (settingsResult.error) throw new Error(`تعذر تحميل إعدادات الشركة: ${settingsResult.error.message}`);
@@ -52,6 +64,7 @@ export async function saveCompanySettings(settings: CompanySettings) {
     banner_url: settings.bannerUrl,
     primary_color: settings.primaryColor,
     services: settings.services,
+    landing_sections: settings.landingSections,
   }, { onConflict: "id" }).select().single();
   if (error) throw new Error(`تعذر حفظ إعدادات الشركة: ${error.message}`);
   return fromSettingsRow(data);

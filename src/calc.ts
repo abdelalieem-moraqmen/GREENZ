@@ -24,6 +24,7 @@ const qtyOf = (items: { productId: string; qty: number }[], pid: string) =>
 
 /** الكمية المتاحة إجمالاً = مشتريات − مبيعات + مرتجع مبيعات − مرتجع مشتريات. */
 export const stockOf = (db: DB, pid: string) =>
+  (db.products.find((p) => p.id === pid)?.openingQty ?? 0) +
   sum(db.purchases, (p) => qtyOf(p.items, pid)) -
   sum(db.sales, (s) => qtyOf(s.items, pid)) +
   sum(db.salesReturns, (s) => qtyOf(s.items, pid)) -
@@ -33,6 +34,7 @@ export const stockOf = (db: DB, pid: string) =>
 export const stockInWarehouse = (db: DB, pid: string, wid: string) => {
   const inW = <T extends { warehouseId?: string }>(a: T[]) => a.filter((x) => (x.warehouseId ?? "") === wid);
   return (
+    (wid === "" ? db.products.find((p) => p.id === pid)?.openingQty ?? 0 : 0) +
     sum(inW(db.purchases), (p) => qtyOf(p.items, pid)) -
     sum(inW(db.sales), (s) => qtyOf(s.items, pid)) +
     sum(inW(db.salesReturns), (s) => qtyOf(s.items, pid)) -
@@ -44,19 +46,24 @@ export const stockInWarehouse = (db: DB, pid: string, wid: string) => {
 
 export const avgCost = (db: DB, pid: string) => {
   const lines = db.purchases.flatMap((p) => p.items).filter((i) => i.productId === pid);
-  const q = sum(lines, (x) => x.qty);
-  return q ? sum(lines, (x) => x.qty * x.cost) / q : 0;
+  const product = db.products.find((item) => item.id === pid);
+  const openingQty = product?.openingQty ?? 0;
+  const totalQty = openingQty + sum(lines, (x) => x.qty);
+  const totalCost = openingQty * (product?.openingCost ?? 0) + sum(lines, (x) => x.qty * x.cost);
+  return totalQty ? totalCost / totalQty : 0;
 };
 
 export const saleDue = (s: Sale) => saleTotal(s) - s.paid;
 export const purchaseDue = (p: Purchase) => purchaseTotal(p) - p.paid;
 
 export const traderDebt = (db: DB, id: string) =>
+  (db.traders.find((trader) => trader.id === id)?.openingBalance ?? 0) +
   sum(db.sales.filter((x) => x.traderId === id), saleDue) -
   sum(db.salesReturns.filter((x) => x.traderId === id), saleTotal) -
   sum(db.payments.filter((p) => p.type === "trader" && p.partyId === id), (p) => p.amount);
 
 export const supplierDebt = (db: DB, id: string) =>
+  (db.suppliers.find((supplier) => supplier.id === id)?.openingBalance ?? 0) +
   sum(db.purchases.filter((x) => x.supplierId === id), purchaseDue) -
   sum(db.purchaseReturns.filter((x) => x.supplierId === id), purchaseTotal) -
   sum(db.payments.filter((p) => p.type === "supplier" && p.partyId === id), (p) => p.amount);
@@ -134,6 +141,13 @@ export function batchesRemaining(db: DB): Batch[] {
         productId: p.id, expiry: i.expiry || undefined, received: i.qty, remaining: i.qty, date: pu.date,
       })))
       .sort((a, b) => (a.expiry ?? "9999").localeCompare(b.expiry ?? "9999"));
+    const openingQty = p.openingQty ?? 0;
+    if (openingQty > 0) {
+      batches.unshift({
+        productId: p.id, received: openingQty, remaining: openingQty,
+        date: "رصيد افتتاحي",
+      });
+    }
     let outflow =
       sum(db.sales, (s) => qtyOf(s.items, p.id)) -
       sum(db.salesReturns, (s) => qtyOf(s.items, p.id)) +

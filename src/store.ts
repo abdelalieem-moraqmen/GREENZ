@@ -24,6 +24,9 @@ const toCamel = (o: Record<string, unknown>) => {
 /** يحوّل الفواتير القديمة (صنف واحد) إلى الشكل الجديد (items). */
 export function migrate(raw: any): DB {
   const d = { ...empty, ...raw };
+  d.traders = d.traders.map((party: any) => ({ openingBalance: 0, ...party }));
+  d.suppliers = d.suppliers.map((party: any) => ({ openingBalance: 0, ...party }));
+  d.products = d.products.map((product: any) => ({ openingQty: 0, openingCost: 0, ...product }));
   d.sales = d.sales.map((s: any) =>
     s.items ? s : { id: s.id, date: s.date, traderId: s.traderId, gov: s.gov, paid: s.paid,
       items: [{ productId: s.productId, qty: s.qty, price: s.price }] });
@@ -60,7 +63,7 @@ export function useDB(permissions: string[], superAdmin = false) {
       if (r.error) failed.push(readable[i]);
       else (next[readable[i]] as unknown[]) = (r.data ?? []).map((row) => toCamel(row));
     });
-    if (failed.length) alert(`تعذر تحميل: ${failed.join("، ")}\nتحقق من صلاحيات الحساب وشغّل ترحيلات Supabase من schema.sql إلى schema_v5.sql.`);
+    if (failed.length) alert(`تعذر تحميل: ${failed.join("، ")}\nتحقق من صلاحيات الحساب وشغّل ترحيلات Supabase من schema.sql إلى schema_v7.sql.`);
     setDb(next);
     setLoading(false);
   }, [can, permissions]);

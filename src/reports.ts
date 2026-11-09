@@ -47,17 +47,17 @@ export function buildReport(key: ReportKey, db: DB, period: Period): Report {
     case "stock": {
       const whs = [MAIN_WAREHOUSE, ...db.warehouses];
       const rows = db.products.map((p) => [
-        p.name, p.unit, ...whs.map((w) => stockInWarehouse(db, p.id, w.id)), stockOf(db, p.id), avgCost(db, p.id),
+        p.id, p.name, p.unit, p.openingQty ?? 0, ...whs.map((w) => stockInWarehouse(db, p.id, w.id)), stockOf(db, p.id), avgCost(db, p.id),
         Math.max(0, stockOf(db, p.id)) * avgCost(db, p.id),
       ]);
-      return { title: "تقرير المخزون", headers: ["الصنف", "الوحدة", ...whs.map((w) => w.name), "الإجمالي", "متوسط التكلفة", "القيمة"], rows };
+      return { title: "تقرير المخزون", headers: ["الكود", "الصنف", "الوحدة", "رصيد أول المدة", ...whs.map((w) => w.name), "الإجمالي", "متوسط التكلفة", "القيمة"], rows };
     }
     case "debts": {
       const rows: (string | number)[][] = [
-        ...db.traders.map((t) => ["تاجر", t.name, t.gov, traderDebt(db, t.id)]),
-        ...db.suppliers.map((t) => ["مورد", t.name, t.gov, supplierDebt(db, t.id)]),
+        ...db.traders.map((t) => ["تاجر", t.id, t.name, t.gov, t.openingBalance ?? 0, traderDebt(db, t.id)]),
+        ...db.suppliers.map((t) => ["مورد", t.id, t.name, t.gov, t.openingBalance ?? 0, supplierDebt(db, t.id)]),
       ];
-      return { title: "أرصدة التجار والموردين", headers: ["النوع", "الاسم", "المحافظة", "الرصيد المتبقي"], rows };
+      return { title: "أرصدة التجار والموردين", headers: ["النوع", "الكود", "الاسم", "المحافظة", "الرصيد الافتتاحي", "الرصيد الحالي"], rows };
     }
     case "batches": {
       const rows = batchesRemaining(db).filter((b) => b.remaining > 0)

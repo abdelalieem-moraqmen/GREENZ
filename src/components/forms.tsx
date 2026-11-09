@@ -191,6 +191,7 @@ export function PartyForm({ initial, onSave, onCancel, label }: FormProps<Party>
       <Field label="الاسم"><input name="name" required defaultValue={initial?.name} /></Field>
       <Field label="التليفون"><input name="phone" defaultValue={initial?.phone} /></Field>
       <Field label="المحافظة"><Select name="gov" options={GOVS} defaultValue={initial?.gov} /></Field>
+      <NumField label={`الرصيد الافتتاحي (مستحق ${label === "مورد" ? "للمورد" : "لنا"})`} name="openingBalance" value={initial?.openingBalance ?? 0} />
       <Actions editing={!!initial} onCancel={onCancel} label={`إضافة ${label}`} />
     </form>
   );
@@ -203,6 +204,8 @@ export function ProductForm({ initial, onSave, onCancel }: FormProps<Product>) {
       <Field label="الوحدة"><Select name="unit" options={UNITS} defaultValue={initial?.unit} /></Field>
       <NumField label="سعر البيع الافتراضي" name="price" value={initial?.price} />
       <NumField label="حد التنبيه" name="min" value={initial?.min ?? 5} />
+      <NumField label="رصيد أول المدة" name="openingQty" value={initial?.openingQty ?? 0} />
+      <NumField label="تكلفة الوحدة أول المدة" name="openingCost" value={initial?.openingCost ?? 0} />
       <Actions editing={!!initial} onCancel={onCancel} label="إضافة صنف" />
     </form>
   );

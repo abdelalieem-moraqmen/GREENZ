@@ -104,17 +104,18 @@ export function ContentManagement(props: Props) {
 
   return (
     <>
-      <PageHeader title="إدارة الموقع والمحتوى" subtitle="تعديل هوية الشركة وإنشاء صفحات داخل التطبيق">
+      <PageHeader title="إدارة الموقع والمحتوى" subtitle="تعديل صفحة الهبوط العامة وإدارة محتوى الموقع">
         <div className="tabs">
           <button type="button" className={tab === "brand" ? "on" : ""} onClick={() => setTab("brand")}>الهوية والمظهر</button>
           <button type="button" className={tab === "pages" ? "on" : ""} onClick={() => setTab("pages")}>الصفحات</button>
+          <a className="btn sm blue" href="/" target="_blank" rel="noreferrer">معاينة الموقع</a>
         </div>
       </PageHeader>
-      {props.error && <div className="alert red">{props.error} — شغّل supabase/schema_v3.sql وschema_v4.sql بعد ملفات الإعداد السابقة.</div>}
+      {props.error && <div className="alert red">{props.error} — شغّل ترحيلات Supabase بالترتيب حتى schema_v6.sql.</div>}
       {message && <div className="alert" role="status">{message}</div>}
 
       {tab === "brand" ? (
-        <Panel title="هوية الشركة ومحتوى لوحة التحكم">
+        <Panel title="هوية الشركة وصفحة الهبوط">
           <form className="form-grid cms-form" onSubmit={saveSettings}>
             <Field label="اسم النشاط"><input value={settings.brandName} onChange={(e) => updateSetting("brandName", e.target.value)} required /></Field>
             <Field label="عنوان البانر"><input value={settings.tagline} onChange={(e) => updateSetting("tagline", e.target.value)} required /></Field>
@@ -123,6 +124,11 @@ export function ContentManagement(props: Props) {
             </Field>
             <Field label="اللون الأساسي"><input type="color" value={settings.primaryColor} onChange={(e) => updateSetting("primaryColor", e.target.value)} /></Field>
             <Field label="نبذة الشركة"><textarea rows={3} value={settings.intro} onChange={(e) => updateSetting("intro", e.target.value)} /></Field>
+            <Field label="عنوان قسم الخدمات"><input value={settings.landingSections.servicesTitle} onChange={(e) => updateSetting("landingSections", { ...settings.landingSections, servicesTitle: e.target.value })} /></Field>
+            <Field label="وصف قسم الخدمات"><textarea rows={2} value={settings.landingSections.servicesIntro} onChange={(e) => updateSetting("landingSections", { ...settings.landingSections, servicesIntro: e.target.value })} /></Field>
+            <Field label="عنوان قسم عن الشركة"><input value={settings.landingSections.aboutTitle} onChange={(e) => updateSetting("landingSections", { ...settings.landingSections, aboutTitle: e.target.value })} /></Field>
+            <Field label="عنوان قسم التواصل"><input value={settings.landingSections.contactTitle} onChange={(e) => updateSetting("landingSections", { ...settings.landingSections, contactTitle: e.target.value })} /></Field>
+            <Field label="وصف قسم التواصل"><textarea rows={2} value={settings.landingSections.contactIntro} onChange={(e) => updateSetting("landingSections", { ...settings.landingSections, contactIntro: e.target.value })} /></Field>
 
             {settings.services.map((service, index) => (
               <div className="cms-service-fields" key={index}>
@@ -140,7 +146,7 @@ export function ContentManagement(props: Props) {
                   onChange={(e) => { void upload(e.target.files?.[0], "logo"); e.currentTarget.value = ""; }} />
                 <img src={settings.logoUrl} alt="معاينة الشعار" />
               </Field>
-              <Field label="بانر لوحة التحكم">
+              <Field label="صورة الصفحة الرئيسية والنظام">
                 <input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy}
                   onChange={(e) => { void upload(e.target.files?.[0], "banner"); e.currentTarget.value = ""; }} />
                 <img src={settings.bannerUrl} alt="معاينة البانر" />

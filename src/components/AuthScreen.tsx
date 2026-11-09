@@ -32,11 +32,15 @@ export function AuthScreen() {
     const mail = email.trim();
     try {
       if (mode === "reset") {
-        const { error } = await supabase.auth.resetPasswordForEmail(mail, { redirectTo: window.location.origin });
+        const { error } = await supabase.auth.resetPasswordForEmail(mail, { redirectTo: `${window.location.origin}/erp` });
         return error ? say(arabicError(error.message)) : say("بعتنا لك رابط إعادة تعيين كلمة المرور على إيميلك ✅", true);
       }
       if (mode === "up") {
-        const { data, error } = await supabase.auth.signUp({ email: mail, password });
+        const { data, error } = await supabase.auth.signUp({
+          email: mail,
+          password,
+          options: { emailRedirectTo: `${window.location.origin}/erp` },
+        });
         if (error) return say(arabicError(error.message));
         // Supabase بيرجّع user بدون identities لو الإيميل مسجّل قبل كده
         if (data.user && data.user.identities?.length === 0) return say("الإيميل ده مسجّل بالفعل، سجّل الدخول.");
@@ -87,6 +91,7 @@ export function AuthScreen() {
         <button type="button" className="link" onClick={() => { setMode(mode === "up" ? "in" : mode === "in" ? "up" : "in"); setMsg(null); }}>
           {mode === "in" ? "ما عندكش حساب؟ أنشئ حساب" : "رجوع لتسجيل الدخول"}
         </button>
+        <a className="link" href="/">العودة إلى الموقع</a>
       </form>
     </div>
   );

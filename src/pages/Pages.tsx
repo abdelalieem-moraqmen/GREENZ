@@ -141,9 +141,11 @@ export function PartiesPage({ store, kind }: { store: Store; kind: "traders" | "
   };
 
   const cols: Column<Party>[] = [
+    { header: "الكود", cell: (r) => r.id },
     { header: "الاسم", cell: (r) => <b>{r.name}</b> },
     { header: "التليفون", cell: (r) => r.phone },
     { header: "المحافظة", cell: (r) => r.gov },
+    { header: "الرصيد الافتتاحي", cell: (r) => fmt(r.openingBalance ?? 0) },
     { header: "المتبقي", cell: (r) => <span className={"badge " + (debt(r.id) > 0.5 ? "orange" : "green")}>{fmt(debt(r.id))}</span> },
   ];
   const payCols: Column<Payment>[] = [
@@ -182,8 +184,10 @@ export function ProductsPage({ store }: { store: Store }) {
   const { db, remove } = store;
   const ed = useEditor<Product>(store, "products", db.products);
   const cols: Column<Product>[] = [
+    { header: "الكود", cell: (r) => r.id },
     { header: "الصنف", cell: (r) => <b>{r.name}</b> },
     { header: "الوحدة", cell: (r) => r.unit },
+    { header: "رصيد أول المدة", cell: (r) => fmt(r.openingQty ?? 0) },
     { header: "سعر البيع", cell: (r) => fmt(r.price) },
     { header: "متوسط التكلفة", cell: (r) => fmt(avgCost(db, r.id)) },
     { header: "المتاح", cell: (r) => <span className={"badge " + (stockOf(db, r.id) <= r.min ? "red" : "green")}>{fmt(stockOf(db, r.id))}</span> },

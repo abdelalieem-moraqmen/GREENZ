@@ -1,7 +1,62 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { fmt } from "../calc";
 import { NAV_ITEMS } from "../constants";
 import type { ContentPage, PageKey } from "../types";
+
+interface InstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
+export function PWAInstallButton({ className = "btn sm primary" }: { className?: string }) {
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(false);
+
+  useEffect(() => {
+    const standalone = window.matchMedia("(display-mode: standalone)").matches ||
+      ("standalone" in navigator && Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
+    setInstalled(standalone);
+
+    const onPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const onInstalled = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+    };
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  if (installed) return null;
+
+  const install = async () => {
+    if (!installPrompt) {
+      const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      alert(isIos
+        ? "لتثبيت التطبيق على iPhone: اضغط مشاركة في Safari ثم اختر «إضافة إلى الشاشة الرئيسية»."
+        : "من قائمة المتصفح اختر «تثبيت التطبيق» أو «إضافة إلى الشاشة الرئيسية».");
+      return;
+    }
+
+    try {
+      await installPrompt.prompt();
+      const choice = await installPrompt.userChoice;
+      if (choice.outcome === "accepted") setInstalled(true);
+      setInstallPrompt(null);
+    } catch (error) {
+      console.error("تعذر بدء تثبيت التطبيق:", error);
+      alert("تعذر بدء التثبيت. حاول من قائمة المتصفح.");
+    }
+  };
+
+  return <button type="button" className={className} onClick={() => void install()}>⬇ تثبيت التطبيق</button>;
+}
 
 /* ---------- Sidebar ---------- */
 export function Sidebar(props: {
@@ -44,6 +99,7 @@ export function Sidebar(props: {
         ))}
       </nav>
       <div className="side-footer">
+        <PWAInstallButton className="ghost install-button" />
         {props.email && <div className="user-box">👤 {props.email}{props.roleLabel && <><br />🎖 {props.roleLabel}</>}</div>}
         {props.onLogout && <button className="ghost" onClick={props.onLogout}>🚪 تسجيل الخروج</button>}
         {props.canExport && <button className="ghost" onClick={props.onExport}>⬇ نسخة احتياطية</button>}

@@ -3,6 +3,7 @@ export interface Party {
   name: string;
   phone: string;
   gov: string;
+  openingBalance: number;
 }
 export type Trader = Party;
 export type Supplier = Party;
@@ -13,6 +14,8 @@ export interface Product {
   unit: string;
   price: number; // default sale price
   min: number; // low stock threshold
+  openingQty: number;
+  openingCost: number;
 }
 
 export interface Warehouse {
@@ -137,6 +140,14 @@ export interface CompanyService {
   description: string;
 }
 
+export interface LandingSections {
+  servicesTitle: string;
+  servicesIntro: string;
+  aboutTitle: string;
+  contactTitle: string;
+  contactIntro: string;
+}
+
 export interface CompanySettings {
   brandName: string;
   tagline: string;
@@ -146,6 +157,7 @@ export interface CompanySettings {
   bannerUrl: string;
   primaryColor: string;
   services: CompanyService[];
+  landingSections: LandingSections;
 }
 
 export interface ContentPage {

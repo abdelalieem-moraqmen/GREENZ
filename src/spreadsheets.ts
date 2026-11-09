@@ -17,9 +17,9 @@ export const COLLECTION_LABELS: Record<Collection, string> = {
 };
 
 const COLUMNS: Record<Collection, string[]> = {
-  traders: ["id", "name", "phone", "gov"],
-  suppliers: ["id", "name", "phone", "gov"],
-  products: ["id", "name", "unit", "price", "min"],
+  traders: ["id", "name", "phone", "gov", "openingBalance"],
+  suppliers: ["id", "name", "phone", "gov", "openingBalance"],
+  products: ["id", "name", "unit", "price", "min", "openingQty", "openingCost"],
   warehouses: ["id", "name", "gov"],
   sales: ["id", "date", "traderId", "gov", "warehouseId", "items", "paid", "note"],
   purchases: ["id", "date", "supplierId", "warehouseId", "items", "paid", "note"],
@@ -30,7 +30,10 @@ const COLUMNS: Record<Collection, string[]> = {
   payments: ["id", "date", "type", "partyId", "amount"],
 };
 
-const NUMERIC_FIELDS = new Set(["qty", "price", "cost", "paid", "amount", "min"]);
+const NUMERIC_FIELDS = new Set([
+  "qty", "price", "cost", "paid", "amount", "min",
+  "openingBalance", "openingQty", "openingCost",
+]);
 
 function cellValue(value: ExcelJS.CellValue): unknown {
   if (value instanceof Date) return value.toISOString().slice(0, 10);
@@ -69,7 +72,7 @@ function normalizeRow(collection: Collection, row: Record<string, unknown>, rowN
   const requiredByCollection: Partial<Record<Collection, string[]>> = {
     traders: ["name"],
     suppliers: ["name"],
-    products: ["name", "unit"],
+    products: ["name"],
     warehouses: ["name"],
     sales: ["date", "traderId", "items"],
     purchases: ["date", "supplierId", "items"],
@@ -82,6 +85,10 @@ function normalizeRow(collection: Collection, row: Record<string, unknown>, rowN
   const missing = (requiredByCollection[collection] ?? []).filter((key) => normalized[key] === undefined);
   if (missing.length) throw new Error(`الصف ${rowNumber} في ورقة ${COLLECTION_LABELS[collection]} ينقصه: ${missing.join("، ")}.`);
   for (const key of ["price", "min", "paid", "amount"]) {
+    if (typeof normalized[key] === "number" && (normalized[key] as number) < 0)
+      throw new Error(`القيمة في عمود ${key} لا يمكن أن تكون سالبة (الصف ${rowNumber}).`);
+  }
+  for (const key of ["openingQty", "openingCost"]) {
     if (typeof normalized[key] === "number" && (normalized[key] as number) < 0)
       throw new Error(`القيمة في عمود ${key} لا يمكن أن تكون سالبة (الصف ${rowNumber}).`);
   }
@@ -167,6 +174,7 @@ export async function importWorkbook(file: File, allowedCollections: Collection[
   await workbook.xlsx.load(await file.arrayBuffer());
 
   const imports: Partial<Record<Collection, Record<string, unknown>[]>> = {};
+  const parsedLegacySheets = new Set<string>();
   for (const collection of allowedCollections) {
     const sheet = workbook.getWorksheet(collection);
     if (!sheet || sheet.rowCount < 2) continue;
@@ -194,8 +202,109 @@ export async function importWorkbook(file: File, allowedCollections: Collection[
     }
     if (rows.length) imports[collection] = rows;
   }
+  for (const sheet of workbook.worksheets) {
+    if (parsedLegacySheets.has(sheet.name)) continue;
+    const collection = legacyCollection(sheet.name);
+    if (!collection || !allowedCollections.includes(collection) || imports[collection]?.length) continue;
+    if (collection !== "products" && collection !== "traders" && collection !== "suppliers") continue;
+    const parsed = importLegacyMasterSheet(sheet, collection);
+    if (parsed.length) {
+      imports[collection] = parsed;
+      parsedLegacySheets.add(sheet.name);
+    }
+  }
   if (!Object.keys(imports).length) throw new Error("لم أجد أوراق بيانات مع صفوف داخل الملف. استخدم أسماء أوراق الأقسام الظاهرة في قالب التصدير.");
   return imports;
+}
+
+function normalizeArabic(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/[()ـ_\-:：]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function legacyCollection(sheetName: string): "products" | "traders" | "suppliers" | undefined {
+  const name = normalizeArabic(sheetName);
+  if (name === "المخزن" || name === "الاصناف" || name === "الاصناف والمخزون") return "products";
+  if (name === "العملاء" || name === "العميل" || name === "التجار") return "traders";
+  if (name === "الموردين" || name === "الموردون" || name === "المورد") return "suppliers";
+  return undefined;
+}
+
+const LEGACY_HEADERS: Partial<Record<Collection, Record<string, string[]>>> = {
+  products: {
+    id: ["كود الصنف", "كود المنتج", "رقم الصنف", "الكود"],
+    name: ["اسم الصنف", "اسم المنتج"],
+    unit: ["الوحدة", "وحدة الصنف"],
+    price: ["سعر البيع", "سعر الصنف"],
+    min: ["حد الطلب", "حد التنبيه", "الحد الادني", "حد أدنى"],
+    openingQty: ["الرصيد الافتتاحي", "رصيد اول المده", "رصيد اول المدة"],
+    openingCost: ["تكلفة الوحدة اول المده", "تكلفة رصيد اول المده"],
+  },
+  traders: {
+    id: ["كود العميل", "كود التاجر", "رقم العميل", "الكود"],
+    name: ["اسم العميل", "اسم التاجر"],
+    phone: ["رقم الهاتف", "رقم التليفون", "الهاتف", "التليفون"],
+    gov: ["العنوان", "المحافظة"],
+    openingBalance: ["الرصيد الافتتاحي دين سابق", "الرصيد الافتتاحي", "رصيد افتتاحي"],
+  },
+  suppliers: {
+    id: ["كود المورد", "كود الشركه", "كود الشركة", "رقم المورد", "الكود"],
+    name: ["اسم المورد", "اسم الشركه", "اسم الشركة"],
+    phone: ["رقم الهاتف", "رقم التليفون", "الهاتف", "التليفون"],
+    gov: ["العنوان", "المحافظة"],
+    openingBalance: ["الرصيد الافتتاحي", "رصيد افتتاحي"],
+  },
+};
+
+function legacyField(collection: Collection, header: unknown) {
+  const normalized = normalizeArabic(header);
+  const aliases = LEGACY_HEADERS[collection] ?? {};
+  for (const [field, values] of Object.entries(aliases)) {
+    if (values.some((alias) => normalizeArabic(alias) === normalized)) return field;
+  }
+  return undefined;
+}
+
+function importLegacyMasterSheet(
+  sheet: ExcelJS.Worksheet,
+  collection: "traders" | "suppliers" | "products",
+) {
+  let headerRow = 0;
+  let fieldsByColumn: Record<number, string> = {};
+  for (let rowNumber = 1; rowNumber <= Math.min(sheet.rowCount, 12); rowNumber++) {
+    const candidate: Record<number, string> = {};
+    sheet.getRow(rowNumber).eachCell((cell, column) => {
+      const field = legacyField(collection, cellValue(cell.value));
+      if (field) candidate[column] = field;
+    });
+    const fields = Object.values(candidate);
+    if (fields.includes("name") && fields.includes("id")) {
+      headerRow = rowNumber;
+      fieldsByColumn = candidate;
+      break;
+    }
+  }
+  if (!headerRow) return [];
+
+  const rows: Record<string, unknown>[] = [];
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber <= headerRow) return;
+    const legacyRow: Record<string, unknown> = {};
+    for (const [column, field] of Object.entries(fieldsByColumn)) {
+      const value = cellValue(row.getCell(Number(column)).value);
+      if (value !== null && value !== undefined && value !== "") legacyRow[field] = value;
+    }
+    if (!legacyRow.name) return;
+    rows.push(normalizeRow(collection, legacyRow, rowNumber));
+  });
+  return rows;
 }
 
 export function getImportableCollections(permissions: string[], superAdmin: boolean) {

@@ -7,6 +7,7 @@ import { ExpensesPage, PartiesPage, ProductsPage, PurchasesPage, SalesPage } fro
 import { ReportsPage, ReturnsPage, WarehousesPage } from "./pages/ErpPages";
 import { ContentManagement, ContentPageView } from "./pages/ContentManagement";
 import { RoleManagementPage } from "./pages/RoleManagement";
+import { LandingPage } from "./pages/LandingPage";
 import { readLocalData, useDB } from "./store";
 import { supabase } from "./supabase";
 import { pagesForRole, ROLE_LABELS } from "./constants";
@@ -14,6 +15,11 @@ import { DEFAULT_COMPANY_SETTINGS, deleteContentPage, loadSiteContent, saveCompa
 import type { CompanySettings, ContentPage, DB, PageKey, Role } from "./types";
 
 export default function App() {
+  const isErpRoute = window.location.pathname === "/erp" || window.location.pathname.startsWith("/erp/");
+  return isErpRoute ? <ErpApp /> : <LandingPage />;
+}
+
+function ErpApp() {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -151,7 +157,7 @@ function Main({ session, role, permissions }: { session: Session; role: Role; pe
         canExport={isSuperAdmin || permissions.includes("dashboard.read") || permissions.includes("reports.read")}
         canImport={isSuperAdmin} />
       <main className="content">
-        {contentError && <div className="alert red">⚠️ {contentError} — شغّل ترحيلات Supabase بالترتيب حتى schema_v5.sql.</div>}
+        {contentError && <div className="alert red">⚠️ {contentError} — شغّل ترحيلات Supabase بالترتيب حتى schema_v6.sql.</div>}
         {store.loading ? <div className="splash">جاري التحميل…</div> : (
           <>
             {page === "dash" && <Dashboard db={store.db} settings={companySettings} />}
