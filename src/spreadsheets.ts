@@ -1,7 +1,7 @@
 import type ExcelJS from "exceljs";
-import { avgCost, computeSummary, saleTotal, stockOf, supplierDebt, sum, traderDebt } from "./calc";
+import { allocateFefo, avgCost, computeSummary, saleTotal, stockOf, supplierDebt, sum, traderDebt, uid } from "./calc";
 import { TABLE_NAMES } from "./constants";
-import type { Collection, DB } from "./types";
+import type { Collection, DB, Purchase, Sale } from "./types";
 
 export const COLLECTION_LABELS: Record<Collection, string> = {
   traders: "التجار",
@@ -129,6 +129,8 @@ const LEGACY_LAYOUTS: Partial<Record<Collection, LegacyLayout>> = {
       { header: "المبلغ المدفوع", key: "paid" },
       { header: "المبلغ المتبقي", key: "due" },
       { header: "خصم", key: "discount" },
+      { header: "رقم التشغيلة", key: "batchNumber" },
+      { header: "تاريخ الصلاحية", key: "expiry" },
     ],
   },
   purchaseReturns: {
@@ -145,6 +147,8 @@ const LEGACY_LAYOUTS: Partial<Record<Collection, LegacyLayout>> = {
       { header: "المبلغ المدفوع", key: "paid" },
       { header: "المبلغ المتبقي", key: "due" },
       { header: "خصم", key: "discount" },
+      { header: "رقم التشغيلة", key: "batchNumber" },
+      { header: "تاريخ الصلاحية", key: "expiry" },
     ],
   },
   expenses: {
@@ -220,6 +224,7 @@ function normalizeRow(collection: Collection, row: Record<string, unknown>, rowN
   if (Array.isArray(normalized.items)) {
     const linePriceField = collection === "sales" || collection === "salesReturns" ? "price"
       : collection === "purchases" || collection === "purchaseReturns" ? "cost" : undefined;
+    const batchIds = new Set<string>();
     for (const [lineIndex, line] of normalized.items.entries()) {
       if (!line || typeof line !== "object" || Array.isArray(line))
         throw new Error(`بيانات الصنف رقم ${lineIndex + 1} غير صالحة في الصف ${rowNumber}.`);
@@ -233,6 +238,23 @@ function normalizeRow(collection: Collection, row: Record<string, unknown>, rowN
         if (!Number.isFinite(price) || price < 0)
           throw new Error(`السعر أو التكلفة غير صالحين في الصف ${rowNumber}.`);
         item[linePriceField] = price;
+      }
+      if (collection === "purchases") {
+        if (typeof item.batchNumber !== "string" || !item.batchNumber.trim())
+          throw new Error(`رقم التشغيلة مطلوب للصنف رقم ${lineIndex + 1} في الصف ${rowNumber}.`);
+        if (typeof item.expiry !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(item.expiry))
+          throw new Error(`تاريخ الصلاحية مطلوب للصنف رقم ${lineIndex + 1} في الصف ${rowNumber}.`);
+        item.batchNumber = item.batchNumber.trim();
+        const expiry = parseLegacyDate(item.expiry, rowNumber);
+        item.expiry = expiry;
+        if (typeof normalized.date === "string" && expiry < normalized.date)
+          throw new Error(`تاريخ صلاحية التشغيلة يسبق تاريخ الشراء في الصف ${rowNumber}.`);
+        if (typeof item.batchId !== "string" || !item.batchId)
+          item.batchId = `import:${String(normalized.id ?? rowNumber)}:${lineIndex}`;
+        const batchId = String(item.batchId);
+        if (batchIds.has(batchId))
+          throw new Error(`معرّف التشغيلة مكرر في الصف ${rowNumber}.`);
+        batchIds.add(batchId);
       }
     }
   }
@@ -555,6 +577,8 @@ function legacyExportRows(collection: Collection, db: DB): Record<string, unknow
             paid,
             due: lineTotal - paid - discount,
             discount,
+            batchNumber: item.batchNumber ?? "",
+            expiry: item.expiry ?? "",
           });
         });
       }
@@ -574,6 +598,8 @@ function legacyExportRows(collection: Collection, db: DB): Record<string, unknow
             paid: 0,
             due: 0,
             discount: 0,
+            batchNumber: item.batchNumber ?? "",
+            expiry: item.expiry ?? "",
           });
         }
       }
@@ -592,6 +618,8 @@ function legacyExportRows(collection: Collection, db: DB): Record<string, unknow
           paid: 0,
           due: 0,
           discount: 0,
+          batchNumber: item.batchNumber ?? "",
+          expiry: item.expiry ?? "",
         });
       }
     }
@@ -643,7 +671,75 @@ export async function importWorkbook(file: File, allowedCollections: Collection[
     }
     if (rows.length) imports[collection] = rows;
   }
+  if (imports.sales?.length) {
+    imports.sales = allocateImportedSales(imports.sales, imports.purchases ?? [], db);
+  }
   return { rows: imports, warnings };
+}
+
+function allocateImportedSales(
+  rows: Record<string, unknown>[],
+  importedPurchases: Record<string, unknown>[],
+  db: DB,
+) {
+  const purchases = new Map(db.purchases.map((purchase) => [purchase.id, purchase]));
+  importedPurchases.forEach((row, index) => {
+    const purchase = { ...row, id: String(row.id ?? `pending-purchase-${index}`) } as unknown as Purchase;
+    purchases.set(purchase.id, purchase);
+  });
+  const projected: DB = { ...db, purchases: [...purchases.values()], sales: [...db.sales] };
+  const result = new Array<Record<string, unknown>>(rows.length);
+  const ordered = rows.map((row, index) => ({
+    row: { ...row, id: String(row.id ?? uid()) } as unknown as Sale,
+    index,
+  })).sort((a, b) => a.row.date.localeCompare(b.row.date) || a.index - b.index);
+
+  for (const { row, index } of ordered) {
+    projected.sales = projected.sales.filter((sale) => sale.id !== row.id);
+    const dateDb: DB = {
+      ...projected,
+      purchases: projected.purchases.filter((purchase) => purchase.date <= row.date),
+      sales: projected.sales.filter((sale) => sale.date <= row.date),
+      salesReturns: projected.salesReturns.filter((entry) => entry.date <= row.date),
+      purchaseReturns: projected.purchaseReturns.filter((entry) => entry.date <= row.date),
+      transfers: projected.transfers.filter((transfer) => transfer.date <= row.date),
+    };
+    const requestedByProduct = new Map<string, number>();
+    row.items.forEach((item) => requestedByProduct.set(
+      item.productId, (requestedByProduct.get(item.productId) ?? 0) + item.qty,
+    ));
+    const allocations = new Map<string, { batchId: string; qty: number }[]>();
+    for (const [productId, qty] of requestedByProduct) {
+      const allocation = allocateFefo(dateDb, productId, qty, row.warehouseId ?? "");
+      if (allocation.missing > 0) {
+        const label = row.invoiceNumber ? `الفاتورة ${row.invoiceNumber}` : `المؤرخة ${row.date}`;
+        const productName = db.products.find((product) => product.id === productId)?.name ?? productId;
+        throw new Error(
+          `تعذر استيراد ${label}: المتاح غير المنتهي ${allocation.available} من ${qty} للصنف ${productName}.`,
+        );
+      }
+      allocations.set(productId, allocation.allocations);
+    }
+
+    const items = row.items.map((item) => {
+      const queue = allocations.get(item.productId) ?? [];
+      let remaining = item.qty;
+      const batchAllocations: { batchId: string; qty: number }[] = [];
+      while (remaining > 0 && queue.length) {
+        const first = queue[0];
+        const qty = Math.min(remaining, first.qty);
+        batchAllocations.push({ batchId: first.batchId, qty });
+        first.qty -= qty;
+        remaining -= qty;
+        if (first.qty <= 0) queue.shift();
+      }
+      return { ...item, batchAllocations };
+    });
+    const sale = { ...row, items };
+    projected.sales.push(sale);
+    result[index] = sale;
+  }
+  return result;
 }
 
 function importGenericSheet(sheet: ExcelJS.Worksheet, collection: Collection) {
@@ -703,6 +799,8 @@ const invoiceHeaders: Record<string, string[]> = {
   paid: ["المبلغ المدفوع"],
   due: ["المتبقي للعميل عليه", "المتبقي للعميل", "المبلغ المتبقي"],
   discount: ["خصم", "الخصم"],
+  batchNumber: ["رقم التشغيلة", "رقم التشغيلة/اللوط", "التشغيلة"],
+  expiry: ["تاريخ الصلاحية", "الصلاحية"],
 };
 
 const LEGACY_HEADERS: Partial<Record<Collection, Record<string, string[]>>> = {
@@ -866,6 +964,14 @@ function importLegacyInvoices(
     const unitPrice = readLegacyNumber(values.unitPrice, rowNumber, "سعر الوحدة");
     if (unitPrice === undefined || unitPrice < 0)
       throw new Error(`سعر الوحدة مطلوب ويجب ألا يكون سالباً في الصف ${rowNumber}.`);
+    const batchNumber = collection === "purchases" ? String(values.batchNumber ?? "").trim() : "";
+    const expiry = collection === "purchases" && values.expiry
+      ? parseLegacyDate(values.expiry, rowNumber)
+      : undefined;
+    if (collection === "purchases" && (!batchNumber || !expiry))
+      throw new Error(`رقم التشغيلة وتاريخ الصلاحية مطلوبان في صف المشتريات ${rowNumber}.`);
+    if (expiry && expiry < date)
+      throw new Error(`تاريخ صلاحية التشغيلة يسبق تاريخ الشراء في الصف ${rowNumber}.`);
     const invoiceNumber = String(values.invoiceNumber ?? "").trim();
     const groupKey = invoiceNumber
       ? `${date}\u0000${invoiceNumber}\u0000${party.id}`
@@ -887,7 +993,14 @@ function importLegacyInvoices(
     }
     invoice.items.push(isSales
       ? { productId: product.id, qty: rowQty, price: unitPrice }
-      : { productId: product.id, qty: rowQty, cost: unitPrice });
+      : {
+          productId: product.id, qty: rowQty, cost: unitPrice,
+          ...(collection === "purchases" ? {
+            batchId: stableImportId("wb-b", `${groupKey}\u0000${rowNumber}`),
+            batchNumber,
+            expiry,
+          } : {}),
+        });
     if (!isReturn) {
       const paid = readLegacyNumber(values.paid, rowNumber, "المدفوع");
       const discount = readLegacyNumber(values.discount, rowNumber, "الخصم");

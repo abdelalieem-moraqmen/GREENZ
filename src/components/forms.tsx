@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { GOVS, EXPENSE_CATEGORIES, UNITS, MAIN_WAREHOUSE } from "../constants";
 import { Field, Select } from "./ui";
-import { fmt, stockInWarehouse, sum, today } from "../calc";
-import type { DB, Expense, Party, Product, Purchase, PurchaseLine, PurchaseReturn, Sale, SaleLine, SalesReturn, Transfer, Warehouse } from "../types";
+import { allocateFefo, allocateSalesReturn, fmt, stockInWarehouse, sum, today, uid } from "../calc";
+import type { BatchAllocation, DB, Expense, Party, Product, Purchase, PurchaseLine, PurchaseReturn, Sale, SaleLine, SalesReturn, Transfer, Warehouse } from "../types";
 
 /** خصائص مشتركة لكل النماذج: قيمة ابتدائية (للتعديل) + حفظ + إلغاء. */
 interface FormProps<T> {
@@ -39,10 +39,31 @@ const NumField = ({ label, name, value, required }: { label: string; name: strin
 );
 
 /* ================= فاتورة (بيع / شراء) متعددة الأصناف ================= */
-type Line = { productId: string; qty: number | ""; unitPrice: number | ""; expiry?: string };
+type Line = {
+  productId: string;
+  qty: number | "";
+  unitPrice: number | "";
+  batchId?: string;
+  batchNumber?: string;
+  expiry?: string;
+};
+
+function takeBatchAllocations(queue: BatchAllocation[], qty: number) {
+  const result: BatchAllocation[] = [];
+  let remaining = qty;
+  while (remaining > 0 && queue.length) {
+    const first = queue[0];
+    const amount = Math.min(remaining, first.qty);
+    result.push({ batchId: first.batchId, qty: amount });
+    first.qty -= amount;
+    remaining -= amount;
+    if (first.qty <= 0) queue.shift();
+  }
+  return result;
+}
 
 function LinesEditor(props: {
-  db: DB; lines: Line[]; priceLabel: string; withExpiry?: boolean; hidePrice?: boolean;
+  db: DB; lines: Line[]; priceLabel: string; withExpiry?: boolean; requireBatch?: boolean; hidePrice?: boolean;
   onChange: (l: Line[]) => void; priceFor?: (pid: string) => number;
 }) {
   const { db, lines, onChange } = props;
@@ -62,8 +83,14 @@ function LinesEditor(props: {
               onChange={(e) => set(i, { unitPrice: e.target.value === "" ? "" : Number(e.target.value) })} />
           )}
           {props.withExpiry && (
-            <input type="date" title="تاريخ الصلاحية" value={l.expiry ?? ""}
-              onChange={(e) => set(i, { expiry: e.target.value })} />
+            <>
+              <input type="text" placeholder="رقم التشغيلة" aria-label="رقم التشغيلة"
+                required={props.requireBatch} value={l.batchNumber ?? ""}
+                onChange={(e) => set(i, { batchNumber: e.target.value })} />
+              <input type="date" title="تاريخ الصلاحية" aria-label="تاريخ الصلاحية"
+                required={props.requireBatch} value={l.expiry ?? ""}
+                onChange={(e) => set(i, { expiry: e.target.value })} />
+            </>
           )}
           {!props.hidePrice && <b className="line-total">{fmt((+l.qty || 0) * (+l.unitPrice || 0))}</b>}
           <button type="button" className="btn sm danger" disabled={lines.length === 1}
@@ -71,7 +98,10 @@ function LinesEditor(props: {
         </div>
       ))}
       <button type="button" className="btn sm blue"
-        onClick={() => onChange([...lines, { productId: db.products[0].id, qty: "", unitPrice: props.priceFor?.(db.products[0].id) || "" }])}>
+        onClick={() => onChange([...lines, {
+          productId: db.products[0].id, qty: "", unitPrice: props.priceFor?.(db.products[0].id) || "",
+          ...(props.withExpiry ? { batchId: uid() } : {}),
+        }])}>
         ＋ إضافة صنف
       </button>
     </div>
@@ -96,10 +126,10 @@ export function SaleForm({ db, initial, onSave, onCancel }: FormProps<Sale> & { 
         return setValidationError("تأكد أن كمية كل صنف أكبر من صفر.");
       if (activeLines.some((l) => !Number.isFinite(+l.unitPrice) || +l.unitPrice < 0))
         return setValidationError("سعر البيع لا يمكن أن يكون سالباً.");
-      const items: SaleLine[] = activeLines.map((l) => ({
+      const requestedItems = activeLines.map((l) => ({
         productId: l.productId, qty: +l.qty, price: +l.unitPrice,
       }));
-      if (!items.length) return setValidationError("أضف صنفاً واحداً على الأقل بكمية صحيحة.");
+      if (!requestedItems.length) return setValidationError("أضف صنفاً واحداً على الأقل بكمية صحيحة.");
 
       const invoiceDiscount = f.discount as number;
       if (!Number.isFinite(invoiceDiscount) || invoiceDiscount < 0 || invoiceDiscount > subtotal)
@@ -110,9 +140,10 @@ export function SaleForm({ db, initial, onSave, onCancel }: FormProps<Sale> & { 
 
       const warehouseId = String(f.warehouseId ?? "");
       const requestedByProduct = new Map<string, number>();
-      items.forEach((item) => requestedByProduct.set(
+      requestedItems.forEach((item) => requestedByProduct.set(
         item.productId, (requestedByProduct.get(item.productId) ?? 0) + item.qty,
       ));
+      const allocationsByProduct = new Map<string, { batchId: string; qty: number }[]>();
       for (const [productId, requested] of requestedByProduct) {
         const returnedByEdit = initial && (initial.warehouseId ?? "") === warehouseId
           ? sum(initial.items.filter((item) => item.productId === productId), (item) => item.qty)
@@ -124,7 +155,22 @@ export function SaleForm({ db, initial, onSave, onCancel }: FormProps<Sale> & { 
             `الكمية المطلوبة من "${productName}" (${fmt(requested)}) أكبر من المتاح في هذا المخزن (${fmt(Math.max(0, available))}).`,
           );
         }
+        const allocation = allocateFefo(db, productId, requested, warehouseId, { excludeSaleId: initial?.id });
+        if (allocation.missing > 0) {
+          const productName = db.products.find((product) => product.id === productId)?.name ?? "الصنف";
+          return setValidationError(
+            `لا يمكن إتمام البيع من "${productName}": الكمية غير المنتهية المتاحة ${fmt(allocation.available)}، والمطلوب ${fmt(requested)}. ممنوع بيع التشغيلات المنتهية.`,
+          );
+        }
+        allocationsByProduct.set(productId, allocation.allocations);
       }
+      const assignedByProduct = new Map<string, BatchAllocation[]>();
+      const items: SaleLine[] = requestedItems.map((item) => {
+        const remaining = assignedByProduct.get(item.productId) ?? [...(allocationsByProduct.get(item.productId) ?? [])];
+        const batchAllocations = takeBatchAllocations(remaining, item.qty);
+        assignedByProduct.set(item.productId, remaining);
+        return { ...item, batchAllocations };
+      });
 
       onSave({
         date: f.date as string, invoiceNumber: f.invoiceNumber as string,
@@ -155,9 +201,12 @@ export function SaleForm({ db, initial, onSave, onCancel }: FormProps<Sale> & { 
 
 export function PurchaseForm({ db, initial, onSave, onCancel }: FormProps<Purchase> & { db: DB }) {
   const first = db.products[0];
-  const blank = (): Line[] => [{ productId: first.id, qty: "", unitPrice: "" }];
+  const blank = (): Line[] => [{ productId: first.id, qty: "", unitPrice: "", batchId: uid() }];
   const [lines, setLines] = useState<Line[]>(
-    initial ? initial.items.map((i) => ({ productId: i.productId, qty: i.qty, unitPrice: i.cost, expiry: i.expiry })) : blank());
+    initial ? initial.items.map((i, index) => ({
+      productId: i.productId, qty: i.qty, unitPrice: i.cost, expiry: i.expiry,
+      batchId: i.batchId || `legacy:${initial.id}:${index}`, batchNumber: i.batchNumber,
+    })) : blank());
   const [discount, setDiscount] = useState(initial?.discount ?? 0);
   const [validationError, setValidationError] = useState("");
   const subtotal = sum(lines, (l) => (+l.qty || 0) * (+l.unitPrice || 0));
@@ -166,8 +215,16 @@ export function PurchaseForm({ db, initial, onSave, onCancel }: FormProps<Purcha
   return (
     <form className="invoice-form" onChange={() => setValidationError("")} onSubmit={(e) => {
       const f = readForm(e);
-      const items: PurchaseLine[] = lines.filter((l) => +l.qty > 0)
-        .map((l) => ({ productId: l.productId, qty: +l.qty, cost: +l.unitPrice || 0, expiry: l.expiry || undefined }));
+      const activeLines = lines.filter((l) => +l.qty > 0);
+      if (activeLines.some((line) => !line.batchNumber?.trim() || !line.expiry))
+        return setValidationError("رقم التشغيلة وتاريخ الصلاحية مطلوبان لكل صنف في فاتورة الشراء.");
+      if (activeLines.some((line) => line.expiry! < String(f.date ?? today())))
+        return setValidationError("تاريخ صلاحية التشغيلة لا يمكن أن يسبق تاريخ استلامها.");
+      const items: PurchaseLine[] = activeLines
+        .map((l) => ({
+          productId: l.productId, qty: +l.qty, cost: +l.unitPrice || 0,
+          batchId: l.batchId || uid(), batchNumber: l.batchNumber!.trim(), expiry: l.expiry,
+        }));
       if (!items.length) return setValidationError("أضف صنفاً بكمية صحيحة.");
       const invoiceDiscount = f.discount as number;
       if (!Number.isFinite(invoiceDiscount) || invoiceDiscount < 0 || invoiceDiscount > subtotal)
@@ -192,7 +249,8 @@ export function PurchaseForm({ db, initial, onSave, onCancel }: FormProps<Purcha
         <Field label="المدفوع الآن"><input type="number" step="any" min="0" max={total} name="paid" defaultValue={initial?.paid ?? 0} /></Field>
         <Field label="ملاحظة"><input name="note" defaultValue={initial?.note} /></Field>
       </div>
-      <LinesEditor db={db} lines={lines} onChange={setLines} priceLabel="سعر الشراء" withExpiry />
+      <LinesEditor db={db} lines={lines} onChange={setLines} priceLabel="سعر الشراء"
+        withExpiry requireBatch={!initial} />
       <div className="invoice-total">إجمالي الفاتورة: <b>{fmt(total)} ج</b></div>
       {validationError && <div className="alert red" role="alert">{validationError}</div>}
       <Actions editing={!!initial} onCancel={onCancel} label="حفظ الفاتورة" />
@@ -255,17 +313,60 @@ export function ReturnForm(props: {
     initial ? (initial.items as any[]).map((i) => ({ productId: i.productId, qty: i.qty, unitPrice: isSales ? i.price : i.cost })) : blank());
   const total = sum(lines, (l) => (+l.qty || 0) * (+l.unitPrice || 0));
   const init = initial as any;
+  const [validationError, setValidationError] = useState("");
 
   return (
-    <form className="invoice-form" onSubmit={(e) => {
+    <form className="invoice-form" onChange={() => setValidationError("")} onSubmit={(e) => {
       const f = readForm(e);
-      const items = lines.filter((l) => +l.qty > 0).map((l) =>
-        isSales ? { productId: l.productId, qty: +l.qty, price: +l.unitPrice || 0 }
-                : { productId: l.productId, qty: +l.qty, cost: +l.unitPrice || 0 });
-      if (!items.length) return alert("أضف صنفاً بكمية صحيحة");
+      const activeLines = lines.filter((l) => +l.qty > 0);
+      if (!activeLines.length) return setValidationError("أضف صنفاً بكمية صحيحة.");
+      const warehouseId = String(f.warehouseId ?? "");
+      const partyId = String(f.partyId ?? "");
+      const requestedByProduct = new Map<string, number>();
+      activeLines.forEach((line) => requestedByProduct.set(
+        line.productId, (requestedByProduct.get(line.productId) ?? 0) + Number(line.qty),
+      ));
+      const allocationsByProduct = new Map<string, BatchAllocation[]>();
+      const untrackedByProduct = new Map<string, number>();
+      for (const [productId, qty] of requestedByProduct) {
+        if (isSales) {
+          const result = allocateSalesReturn(db, productId, qty, partyId, warehouseId, initial?.id, String(f.date));
+          if (result.excess > 0)
+            return setValidationError("كمية مرتجع المبيعات أكبر من الكمية المسجلة المباعة لهذا التاجر والصنف.");
+          allocationsByProduct.set(productId, result.allocations);
+          untrackedByProduct.set(productId, Math.min(result.missing, result.untrackedAvailable));
+        } else {
+          const result = allocateFefo(db, productId, qty, warehouseId, {
+            supplierId: partyId, allowExpired: true, excludePurchaseReturnId: initial?.id,
+          });
+          if (result.missing > 0)
+            return setValidationError(
+              `لا توجد كمية متاحة من هذا المورد لتسجيل المرتجع (${fmt(result.available)} متاح من ${fmt(qty)} مطلوب).`,
+            );
+          allocationsByProduct.set(productId, result.allocations);
+        }
+      }
+      const assignedByProduct = new Map<string, BatchAllocation[]>();
+      const items = activeLines.map((line) => {
+        const qty = Number(line.qty);
+        const queue = assignedByProduct.get(line.productId) ?? [...(allocationsByProduct.get(line.productId) ?? [])];
+        const batchAllocations = takeBatchAllocations(queue, qty);
+        const untracked = Math.min(
+          qty - batchAllocations.reduce((total, allocation) => total + allocation.qty, 0),
+          untrackedByProduct.get(line.productId) ?? 0,
+        );
+        if (untracked > 0) {
+          untrackedByProduct.set(line.productId, (untrackedByProduct.get(line.productId) ?? 0) - untracked);
+          batchAllocations.push({ batchId: `untracked-sales-return:${uid()}`, qty: untracked });
+        }
+        assignedByProduct.set(line.productId, queue);
+        return isSales
+          ? { productId: line.productId, qty, price: +line.unitPrice || 0, batchAllocations }
+          : { productId: line.productId, qty, cost: +line.unitPrice || 0, batchAllocations };
+      });
       props.onSave({
         date: f.date, invoiceNumber: f.invoiceNumber, warehouseId: f.warehouseId, note: f.note, items,
-        ...(isSales ? { traderId: f.partyId } : { supplierId: f.partyId }),
+        ...(isSales ? { traderId: partyId } : { supplierId: partyId }),
       });
       if (!initial) setLines(blank());
     }}>
@@ -282,6 +383,7 @@ export function ReturnForm(props: {
       <LinesEditor db={db} lines={lines} onChange={setLines} priceLabel={isSales ? "سعر الوحدة" : "سعر الشراء"}
         priceFor={isSales ? (pid) => db.products.find((p) => p.id === pid)?.price ?? 0 : undefined} />
       <div className="invoice-total">قيمة المرتجع: <b>{fmt(total)} ج</b></div>
+      {validationError && <div className="alert red" role="alert">{validationError}</div>}
       <Actions editing={!!initial} onCancel={props.onCancel} label="حفظ المرتجع" />
     </form>
   );
@@ -308,8 +410,30 @@ export function TransferForm({ db, initial, onSave, onCancel }: FormProps<Transf
     <form className="invoice-form" onSubmit={(e) => {
       const f = readForm(e);
       if (f.fromId === f.toId) return alert("اختر مخزنين مختلفين");
-      const items = lines.filter((l) => +l.qty > 0).map((l) => ({ productId: l.productId, qty: +l.qty }));
-      if (!items.length) return alert("أضف صنفاً بكمية صحيحة");
+      const activeLines = lines.filter((l) => +l.qty > 0);
+      if (!activeLines.length) return alert("أضف صنفاً بكمية صحيحة");
+      const requestedByProduct = new Map<string, number>();
+      activeLines.forEach((line) => requestedByProduct.set(
+        line.productId, (requestedByProduct.get(line.productId) ?? 0) + Number(line.qty),
+      ));
+      const allocationsByProduct = new Map<string, BatchAllocation[]>();
+      for (const [productId, qty] of requestedByProduct) {
+        const allocation = allocateFefo(db, productId, qty, String(f.fromId), {
+          allowExpired: true, excludeTransferId: initial?.id,
+        });
+        if (allocation.missing > 0) {
+          const productName = db.products.find((product) => product.id === productId)?.name ?? "الصنف";
+          return alert(`الكمية المطلوبة من "${productName}" أكبر من المتاح في مخزن المصدر.`);
+        }
+        allocationsByProduct.set(productId, allocation.allocations);
+      }
+      const queues = new Map<string, BatchAllocation[]>();
+      const items = activeLines.map((line) => {
+        const queue = queues.get(line.productId) ?? [...(allocationsByProduct.get(line.productId) ?? [])];
+        const batchAllocations = takeBatchAllocations(queue, Number(line.qty));
+        queues.set(line.productId, queue);
+        return { productId: line.productId, qty: Number(line.qty), batchAllocations };
+      });
       onSave({ date: f.date as string, fromId: f.fromId as string, toId: f.toId as string, note: f.note as string, items });
       if (!initial) setLines(blank());
     }}>

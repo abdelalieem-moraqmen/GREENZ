@@ -28,13 +28,22 @@ export interface SaleLine {
   productId: string;
   qty: number;
   price: number;
+  batchAllocations?: BatchAllocation[];
+}
+
+export interface BatchAllocation {
+  batchId: string;
+  qty: number;
 }
 
 export interface PurchaseLine {
   productId: string;
   qty: number;
   cost: number;
-  expiry?: string; // تاريخ الصلاحية (اختياري)
+  batchId?: string;
+  batchNumber?: string;
+  expiry?: string;
+  batchAllocations?: BatchAllocation[];
 }
 
 export interface Sale {
@@ -87,6 +96,7 @@ export interface PurchaseReturn {
 export interface TransferLine {
   productId: string;
   qty: number;
+  batchAllocations?: BatchAllocation[];
 }
 
 export interface Transfer {

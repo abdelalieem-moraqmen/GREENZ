@@ -3,7 +3,7 @@ import { DataTable, PageHeader, Panel, type Column } from "../components/ui";
 import { SpreadsheetTools } from "../components/SpreadsheetTools";
 import { ExpenseForm, PartyForm, ProductForm, PurchaseForm, SaleForm } from "../components/forms";
 import {
-  avgCost, fmt, nameOf, purchaseDue, purchaseTotal, saleDue, saleTotal, stockOf, supplierDebt, today, traderDebt,
+  avgCost, batchNumberOf, fmt, nameOf, purchaseDue, purchaseTotal, saleDue, saleTotal, stockOf, supplierDebt, today, traderDebt,
 } from "../calc";
 import { printInvoice, printStatement } from "../print";
 import type { Store } from "../store";
@@ -44,6 +44,10 @@ export function SalesPage({ store }: { store: Store }) {
     { header: "التاجر", cell: (r) => nameOf(db.traders, r.traderId) },
     { header: "المحافظة", cell: (r) => r.gov },
     { header: "الأصناف", cell: (r) => r.items.map((i) => `${nameOf(db.products, i.productId)} ×${fmt(i.qty)}`).join("، ") },
+    { header: "التشغيلات المصروفة", cell: (r) => r.items
+      .flatMap((item) => (item.batchAllocations ?? []).map((allocation) =>
+        `${batchNumberOf(db, allocation.batchId)} ×${fmt(allocation.qty)}`,
+      )).join("، ") || "غير موثق" },
     { header: "الإجمالي", cell: (r) => <b>{fmt(saleTotal(r))}</b> },
     { header: "المدفوع", cell: (r) => fmt(r.paid) },
     { header: "المتبقي", cell: (r) => <span className="badge orange">{fmt(saleDue(r))}</span> },
@@ -74,14 +78,16 @@ export function PurchasesPage({ store }: { store: Store }) {
   const cols: Column<Purchase>[] = [
     { header: "التاريخ", cell: (r) => r.date },
     { header: "المورد", cell: (r) => nameOf(db.suppliers, r.supplierId) },
-    { header: "الأصناف", cell: (r) => r.items.map((i) => `${nameOf(db.products, i.productId)} ×${fmt(i.qty)}`).join("، ") },
+    { header: "الأصناف والتشغيلات", cell: (r) => r.items.map((item) =>
+      `${nameOf(db.products, item.productId)} ×${fmt(item.qty)} — ${item.batchNumber || "تشغيلة غير مسجلة"} — صلاحية ${item.expiry || "غير مسجلة"}`,
+    ).join("، ") },
     { header: "الإجمالي", cell: (r) => <b>{fmt(purchaseTotal(r))}</b> },
     { header: "المدفوع", cell: (r) => fmt(r.paid) },
     { header: "المتبقي", cell: (r) => <span className="badge orange">{fmt(purchaseDue(r))}</span> },
   ];
   return (
     <>
-      <PageHeader title="المشتريات" subtitle="فواتير الشراء من الموردين (مع تاريخ الصلاحية لكل صنف)">
+      <PageHeader title="المشتريات" subtitle="سجّل رقم التشغيلة وتاريخ صلاحيتها لكل صنف؛ المورد مرتبط بفاتورة الشراء">
         <SpreadsheetTools store={store} collections={["purchases"]} />
       </PageHeader>
       {(ed.editing ? ed.canUpdate : ed.canCreate) && <Panel title={ed.editing ? "تعديل فاتورة شراء" : "فاتورة شراء جديدة"}>

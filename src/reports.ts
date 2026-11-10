@@ -1,5 +1,5 @@
 import {
-  avgCost, batchesRemaining, fmt, inPeriod, monthlySeries, nameOf, purchaseDue, purchaseTotal, saleDue, saleTotal,
+  avgCost, batchNumberOf, batchesRemaining, fmt, inPeriod, monthlySeries, nameOf, purchaseDue, purchaseTotal, saleDue, saleTotal,
   stockInWarehouse, stockOf, supplierDebt, sum, traderDebt,
 } from "./calc";
 import { MAIN_WAREHOUSE } from "./constants";
@@ -26,7 +26,21 @@ export const REPORT_LIST: { key: ReportKey; label: string }[] = [
 
 export function buildReport(key: ReportKey, db: DB, period: Period): Report {
   const wname = (id?: string) => [MAIN_WAREHOUSE, ...db.warehouses].find((w) => w.id === (id ?? ""))?.name ?? "—";
-  const items = (it: { productId: string; qty: number }[]) => it.map((i) => `${nameOf(db.products, i.productId)} ×${i.qty}`).join("، ");
+  const items = (it: {
+    productId: string;
+    qty: number;
+    batchAllocations?: { batchId: string; qty: number }[];
+    batchNumber?: string;
+    expiry?: string;
+  }[]) => it.map((item) => {
+    const lots = item.batchAllocations?.map((allocation) =>
+      `${batchNumberOf(db, allocation.batchId)} ×${allocation.qty}`,
+    ).join("، ");
+    const lotInfo = item.batchNumber
+      ? `${item.batchNumber} — صلاحية ${item.expiry ?? "غير مسجلة"}`
+      : lots ? `تشغيلات: ${lots}` : "";
+    return `${nameOf(db.products, item.productId)} ×${item.qty}${lotInfo ? ` (${lotInfo})` : ""}`;
+  }).join("، ");
 
   switch (key) {
     case "sales": {
@@ -62,8 +76,19 @@ export function buildReport(key: ReportKey, db: DB, period: Period): Report {
     case "batches": {
       const rows = batchesRemaining(db).filter((b) => b.remaining > 0)
         .sort((a, b) => (a.expiry ?? "9999").localeCompare(b.expiry ?? "9999"))
-        .map((b) => [nameOf(db.products, b.productId), b.date, b.expiry ?? "بدون صلاحية", b.received, b.remaining]);
-      return { title: "التشغيلات وتواريخ الصلاحية", headers: ["الصنف", "تاريخ الشراء", "الصلاحية", "الكمية المستلمة", "المتبقي"], rows };
+        .map((batch) => [
+          nameOf(db.products, batch.productId), batch.batchNumber, batch.supplierName,
+          batch.invoiceNumber ?? "—", wname(batch.warehouseId),
+          batch.date === "0000-00-00" ? "رصيد افتتاحي" : batch.date,
+          batch.expiry ?? "غير مسجل", batch.received, batch.remaining,
+          batch.tracked ? "موثق" : "يحتاج استكمال البيانات",
+        ]);
+      return {
+        title: "التشغيلات وتواريخ الصلاحية",
+        headers: ["الصنف", "رقم التشغيلة", "المورد", "فاتورة الشراء", "المخزن", "تاريخ الاستلام",
+          "الصلاحية", "الكمية المستلمة", "المتبقي", "حالة التتبع"],
+        rows,
+      };
     }
     case "monthly": {
       const rows = monthlySeries(db).map(([m, v]) => [m, v.revenue, v.spending, v.revenue - v.spending]);

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { BarList, MonthlyChart, PageHeader, Panel, Select, StatCard, Field } from "../components/ui";
 import { SpreadsheetTools } from "../components/SpreadsheetTools";
-import { computeSummary, expiringBatches, fmt, saleLines, saleTotal, groupSum, monthlySeries, nameOf, stockOf, supplierDebt, traderDebt } from "../calc";
+import { batchesRemaining, computeSummary, expiringBatches, fmt, saleLines, saleTotal, groupSum, monthlySeries, nameOf, stockOf, supplierDebt, today, traderDebt } from "../calc";
 import type { CompanySettings, DB, Period } from "../types";
 import { TABLES, type Store } from "../store";
 
@@ -15,6 +15,11 @@ export function Dashboard({ db, store, settings }: { db: DB; store: Store; setti
   const topProducts = groupSum(saleLines(s.S), (x) => nameOf(db.products, x.productId), (x) => x.qty * x.price).slice(0, 5);
   const low = db.products.filter((p) => stockOf(db, p.id) <= p.min);
   const expiring = expiringBatches(db);
+  const expired = expiring.filter((batch) => batch.expiry! < today());
+  const expiringSoon = expiring.filter((batch) => batch.expiry! >= today());
+  const untrackedProductCount = new Set(
+    batchesRemaining(db).filter((batch) => !batch.tracked).map((batch) => batch.productId),
+  ).size;
   const traderDebts = db.traders
     .map((t) => [`${t.name} (${t.gov})`, traderDebt(db, t.id)] as [string, number])
     .filter(([, v]) => v > 0.5).sort((a, b) => b[1] - a[1]);
@@ -82,10 +87,27 @@ export function Dashboard({ db, store, settings }: { db: DB; store: Store; setti
         </div>
       )}
 
-      {expiring.length > 0 && (
+      {expired.length > 0 && (
         <div className="alert red">
-          ⏰ مبيدات قاربت على انتهاء الصلاحية (خلال 90 يوماً):{" "}
-          {expiring.slice(0, 6).map((i) => `${nameOf(db.products, i.productId)} — ${i.expiry} (متبقي ${fmt(i.remaining)})`).join(" • ")}
+          ⛔ تشغيلات منتهية — البيع منها ممنوع:{" "}
+          {expired.slice(0, 6).map((batch) =>
+            `${nameOf(db.products, batch.productId)} (${batch.batchNumber}) — ${batch.expiry} (متبقي ${fmt(batch.remaining)})`,
+          ).join(" • ")}
+        </div>
+      )}
+
+      {expiringSoon.length > 0 && (
+        <div className="alert">
+          ⏰ تشغيلات تنتهي خلال 90 يوماً:{" "}
+          {expiringSoon.slice(0, 6).map((batch) =>
+            `${nameOf(db.products, batch.productId)} (${batch.batchNumber}) — ${batch.expiry} (متبقي ${fmt(batch.remaining)})`,
+          ).join(" • ")}
+        </div>
+      )}
+
+      {untrackedProductCount > 0 && (
+        <div className="alert">
+          ⚠️ يوجد مخزون في {fmt(untrackedProductCount)} صنف بدون بيانات تتبع مكتملة (رقم التشغيلة أو المورد أو الصلاحية). الأرصدة الافتتاحية المستوردة تظل غير متتبعة؛ سجّل بيانات التشغيلات عند استلام المشتريات الجديدة.
         </div>
       )}
 
