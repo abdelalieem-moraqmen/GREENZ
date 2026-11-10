@@ -160,7 +160,7 @@ function Main({ session, role, permissions }: { session: Session; role: Role; pe
         {contentError && <div className="alert red">⚠️ {contentError} — شغّل ترحيلات Supabase بالترتيب حتى schema_v6.sql.</div>}
         {store.loading ? <div className="splash">جاري التحميل…</div> : (
           <>
-            {page === "dash" && <Dashboard db={store.db} settings={companySettings} />}
+            {page === "dash" && <Dashboard db={store.db} store={store} settings={companySettings} />}
             {page === "sales" && <SalesPage store={store} />}
             {page === "purchases" && <PurchasesPage store={store} />}
             {page === "returns" && <ReturnsPage store={store} />}

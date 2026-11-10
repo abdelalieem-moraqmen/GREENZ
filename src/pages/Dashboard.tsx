@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { BarList, MonthlyChart, PageHeader, Panel, Select, StatCard, Field } from "../components/ui";
+import { SpreadsheetTools } from "../components/SpreadsheetTools";
 import { computeSummary, expiringBatches, fmt, saleLines, saleTotal, groupSum, monthlySeries, nameOf, stockOf, supplierDebt, traderDebt } from "../calc";
 import type { CompanySettings, DB, Period } from "../types";
+import { TABLES, type Store } from "../store";
 
-export function Dashboard({ db, settings }: { db: DB; settings: CompanySettings }) {
+export function Dashboard({ db, store, settings }: { db: DB; store: Store; settings: CompanySettings }) {
   const [period, setPeriod] = useState<Period>("all");
   const s = computeSummary(db, period);
 
@@ -23,6 +25,7 @@ export function Dashboard({ db, settings }: { db: DB; settings: CompanySettings 
   return (
     <>
       <PageHeader title="لوحة التحكم" subtitle="ملخص شغلك كله في مكان واحد">
+        <SpreadsheetTools store={store} collections={TABLES} fullWorkbook />
         <Field label="الفترة">
           <Select name="period" defaultValue={period} onChange={(v) => setPeriod(v as Period)}
             options={[{ value: "all", label: "الكل" }, { value: "month", label: "هذا الشهر" }, { value: "year", label: "هذه السنة" }]} />

@@ -21,10 +21,13 @@ export function openPrint(title: string, body: string) {
 export function printInvoice(sale: Sale, db: DB) {
   const rows = sale.items.map((i) =>
     `<tr><td>${nameOf(db.products, i.productId)}</td><td>${fmt(i.qty)}</td><td>${fmt(i.price)}</td><td>${fmt(i.qty * i.price)}</td></tr>`).join("");
+  const subtotal = sale.items.reduce((total, item) => total + item.qty * item.price, 0);
   openPrint("فاتورة بيع", `
     <h1>🌿 فاتورة بيع</h1>
-    <div class="meta">التاريخ: ${sale.date} | التاجر: <b>${nameOf(db.traders, sale.traderId)}</b> | المحافظة: ${sale.gov}</div>
+    <div class="meta">التاريخ: ${sale.date}${sale.invoiceNumber ? ` | رقم الفاتورة: ${sale.invoiceNumber}` : ""} | التاجر: <b>${nameOf(db.traders, sale.traderId)}</b> | المحافظة: ${sale.gov}</div>
     <table><tr><th>الصنف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr>${rows}
+    <tr><td colspan="3">الإجمالي قبل الخصم</td><td>${fmt(subtotal)}</td></tr>
+    ${sale.discount ? `<tr><td colspan="3">الخصم</td><td>${fmt(sale.discount)}</td></tr>` : ""}
     <tr class="tot"><td colspan="3">الإجمالي</td><td>${fmt(saleTotal(sale))}</td></tr>
     <tr><td colspan="3">المدفوع</td><td>${fmt(sale.paid)}</td></tr>
     <tr class="tot"><td colspan="3">المتبقي</td><td>${fmt(saleDue(sale))}</td></tr></table>

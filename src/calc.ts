@@ -8,8 +8,10 @@ export const uid = () => Date.now().toString(36) + Math.random().toString(36).sl
 export const nameOf = (arr: { id: string; name: string }[], id: string) =>
   arr.find((x) => x.id === id)?.name ?? "—";
 
-export const saleTotal = (s: Sale | SalesReturn) => sum(s.items, (i) => i.qty * i.price);
-export const purchaseTotal = (p: Purchase | PurchaseReturn) => sum(p.items, (i) => i.qty * i.cost);
+export const saleTotal = (s: Sale | SalesReturn) =>
+  sum(s.items, (i) => i.qty * i.price) - ("discount" in s ? s.discount ?? 0 : 0);
+export const purchaseTotal = (p: Purchase | PurchaseReturn) =>
+  sum(p.items, (i) => i.qty * i.cost) - ("discount" in p ? p.discount ?? 0 : 0);
 
 export const inPeriod = (date: string, period: Period) => {
   if (period === "all") return true;

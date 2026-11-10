@@ -3,7 +3,9 @@ import { COLLECTION_LABELS, exportWorkbook, importWorkbook } from "../spreadshee
 import type { Store } from "../store";
 import type { Collection } from "../types";
 
-export function SpreadsheetTools({ store, collections }: { store: Store; collections: Collection[] }) {
+export function SpreadsheetTools({
+  store, collections, fullWorkbook = false,
+}: { store: Store; collections: Collection[]; fullWorkbook?: boolean }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -21,8 +23,9 @@ export function SpreadsheetTools({ store, collections }: { store: Store; collect
       await exportWorkbook(
         template ? importable : readable,
         store.db,
-        template ? "قالب-استيراد-المميز.xlsx" : "بيانات-المميز.xlsx",
+        template ? "قالب-شيت-العميل.xlsx" : "بيانات-المميز.xlsx",
         template,
+        fullWorkbook,
       );
       if (template) setMessage("تم تنزيل قالب Excel. املأ الأعمدة كما هي ثم ارفع الملف للاستيراد.");
     } catch (reason) {
@@ -38,17 +41,25 @@ export function SpreadsheetTools({ store, collections }: { store: Store; collect
     setError("");
     setMessage("");
     try {
-      const imported = await importWorkbook(file, importable);
-      const summary = Object.entries(imported)
+      const imported = await importWorkbook(file, importable, store.db);
+      const entries = Object.entries(imported.rows);
+      if (!entries.length) {
+        setMessage(imported.warnings.length
+          ? imported.warnings.join("\n")
+          : "لم أجد صفوف بيانات قابلة للاستيراد في أوراق الأقسام المختارة.");
+        return;
+      }
+      const summary = entries
         .map(([collection, rows]) => `${COLLECTION_LABELS[collection as Collection]}: ${rows.length}`)
         .join("\n");
-      if (!confirm(`سيتم استيراد الصفوف التالية. الصف الذي يحمل ID موجوداً سيتم تحديثه، وإلا سيُضاف كسجل جديد:\n\n${summary}\n\nهل تريد المتابعة؟`)) return;
+      const warnings = imported.warnings.length ? `\n\nملاحظات:\n${imported.warnings.join("\n")}` : "";
+      if (!confirm(`سيتم استيراد الصفوف التالية. الصف ذو المعرّف المطابق سيُحدّث، وإلا سيُضاف كسجل جديد:\n\n${summary}${warnings}\n\nهل تريد المتابعة؟`)) return;
       const results: string[] = [];
-      for (const [collection, rows] of Object.entries(imported)) {
+      for (const [collection, rows] of entries) {
         const result = await store.importRows(collection as Collection, rows);
         results.push(`${COLLECTION_LABELS[collection as Collection]}: ${result.created} إضافة، ${result.updated} تعديل`);
       }
-      setMessage(`اكتمل الاستيراد:\n${results.join("\n")}`);
+      setMessage(`اكتمل الاستيراد:\n${results.join("\n")}${warnings}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -65,12 +76,12 @@ export function SpreadsheetTools({ store, collections }: { store: Store; collect
       </button>
       {importable.length > 0 && (
         <>
-          <button type="button" className="btn sm amber" disabled={busy} onClick={() => void exportData(true)}>قالب استيراد</button>
+          <button type="button" className="btn sm amber" disabled={busy} onClick={() => void exportData(true)}>قالب شيت العميل</button>
           <button type="button" className="btn sm primary" disabled={busy} onClick={() => fileInput.current?.click()}>⬆ استيراد Excel</button>
           <input ref={fileInput} className="spreadsheet-file" type="file" accept=".xlsx" disabled={busy}
             onChange={(event) => void importData(event.target.files?.[0])} />
           {collections.some((collection) => ["products", "traders", "suppliers"].includes(collection)) &&
-            <small className="spreadsheet-hint">يدعم استيراد أوراق المخزن والعملاء والموردين مع الأكواد والأرصدة الافتتاحية.</small>}
+            <small className="spreadsheet-hint">القالب يحافظ على أسماء وأعمدة شيت العميل. إذا كان الملف محمياً بكلمة مرور، احفظ نسخة .xlsx غير محمية قبل رفعها.</small>}
         </>
       )}
       {message && <span className="spreadsheet-message" role="status">{message}</span>}

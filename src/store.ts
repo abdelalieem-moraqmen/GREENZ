@@ -63,7 +63,7 @@ export function useDB(permissions: string[], superAdmin = false) {
       if (r.error) failed.push(readable[i]);
       else (next[readable[i]] as unknown[]) = (r.data ?? []).map((row) => toCamel(row));
     });
-    if (failed.length) alert(`تعذر تحميل: ${failed.join("، ")}\nتحقق من صلاحيات الحساب وشغّل ترحيلات Supabase من schema.sql إلى schema_v7.sql.`);
+    if (failed.length) alert(`تعذر تحميل: ${failed.join("، ")}\nتحقق من صلاحيات الحساب وشغّل ترحيلات Supabase من schema.sql إلى schema_v8.sql.`);
     setDb(next);
     setLoading(false);
   }, [can, permissions]);

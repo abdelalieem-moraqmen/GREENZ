@@ -11,7 +11,7 @@ interface FormProps<T> {
   onCancel?: () => void;
 }
 
-const NUMERIC = new Set(["qty", "price", "cost", "paid", "amount", "min"]);
+const NUMERIC = new Set(["qty", "price", "cost", "paid", "amount", "min", "discount"]);
 function readForm(e: FormEvent<HTMLFormElement>) {
   e.preventDefault();
   const out: Record<string, string | number> = {};
@@ -84,7 +84,9 @@ export function SaleForm({ db, initial, onSave, onCancel }: FormProps<Sale> & { 
   const [lines, setLines] = useState<Line[]>(
     initial ? initial.items.map((i) => ({ productId: i.productId, qty: i.qty, unitPrice: i.price }))
             : [{ productId: first.id, qty: "", unitPrice: first.price || "" }]);
-  const total = sum(lines, (l) => (+l.qty || 0) * (+l.unitPrice || 0));
+  const [discount, setDiscount] = useState(initial?.discount ?? 0);
+  const subtotal = sum(lines, (l) => (+l.qty || 0) * (+l.unitPrice || 0));
+  const total = subtotal - discount;
 
   return (
     <form className="invoice-form" onChange={() => setValidationError("")} onSubmit={(e) => {
@@ -99,6 +101,9 @@ export function SaleForm({ db, initial, onSave, onCancel }: FormProps<Sale> & { 
       }));
       if (!items.length) return setValidationError("أضف صنفاً واحداً على الأقل بكمية صحيحة.");
 
+      const invoiceDiscount = f.discount as number;
+      if (!Number.isFinite(invoiceDiscount) || invoiceDiscount < 0 || invoiceDiscount > subtotal)
+        return setValidationError("الخصم يجب أن يكون بين صفر وإجمالي الأصناف.");
       const paid = f.paid as number;
       if (!Number.isFinite(paid) || paid < 0 || paid > total)
         return setValidationError("المدفوع يجب أن يكون بين صفر وإجمالي الفاتورة.");
@@ -121,14 +126,21 @@ export function SaleForm({ db, initial, onSave, onCancel }: FormProps<Sale> & { 
         }
       }
 
-      onSave({ date: f.date as string, traderId: f.traderId as string, warehouseId, gov: f.gov as string, paid, note: f.note as string, items });
+      onSave({
+        date: f.date as string, invoiceNumber: f.invoiceNumber as string,
+        traderId: f.traderId as string, warehouseId, gov: f.gov as string,
+        paid, discount: invoiceDiscount, note: f.note as string, items,
+      });
       if (!initial) setLines([{ productId: first.id, qty: "", unitPrice: first.price || "" }]);
     }}>
       <div className="form-grid">
         <DateField value={initial?.date} />
+        <Field label="رقم الفاتورة"><input name="invoiceNumber" defaultValue={initial?.invoiceNumber} /></Field>
         <Field label="التاجر"><Select name="traderId" options={opt(db.traders)} defaultValue={initial?.traderId} /></Field>
         <Field label="المحافظة"><Select name="gov" options={GOVS} defaultValue={initial?.gov} /></Field>
         <Field label="المخزن"><Select name="warehouseId" options={whOpts(db)} defaultValue={initial?.warehouseId ?? ""} /></Field>
+        <Field label="الخصم"><input type="number" step="any" min="0" max={subtotal} name="discount"
+          value={discount} onChange={(event) => setDiscount(Number(event.target.value) || 0)} /></Field>
         <Field label="المدفوع الآن"><input type="number" step="any" min="0" max={total} name="paid" defaultValue={initial?.paid ?? 0} /></Field>
         <Field label="ملاحظة"><input name="note" defaultValue={initial?.note} /></Field>
       </div>
@@ -146,26 +158,43 @@ export function PurchaseForm({ db, initial, onSave, onCancel }: FormProps<Purcha
   const blank = (): Line[] => [{ productId: first.id, qty: "", unitPrice: "" }];
   const [lines, setLines] = useState<Line[]>(
     initial ? initial.items.map((i) => ({ productId: i.productId, qty: i.qty, unitPrice: i.cost, expiry: i.expiry })) : blank());
-  const total = sum(lines, (l) => (+l.qty || 0) * (+l.unitPrice || 0));
+  const [discount, setDiscount] = useState(initial?.discount ?? 0);
+  const [validationError, setValidationError] = useState("");
+  const subtotal = sum(lines, (l) => (+l.qty || 0) * (+l.unitPrice || 0));
+  const total = subtotal - discount;
 
   return (
-    <form className="invoice-form" onSubmit={(e) => {
+    <form className="invoice-form" onChange={() => setValidationError("")} onSubmit={(e) => {
       const f = readForm(e);
       const items: PurchaseLine[] = lines.filter((l) => +l.qty > 0)
         .map((l) => ({ productId: l.productId, qty: +l.qty, cost: +l.unitPrice || 0, expiry: l.expiry || undefined }));
-      if (!items.length) return alert("أضف صنفاً بكمية صحيحة");
-      onSave({ date: f.date as string, supplierId: f.supplierId as string, warehouseId: f.warehouseId as string, paid: f.paid as number, note: f.note as string, items });
+      if (!items.length) return setValidationError("أضف صنفاً بكمية صحيحة.");
+      const invoiceDiscount = f.discount as number;
+      if (!Number.isFinite(invoiceDiscount) || invoiceDiscount < 0 || invoiceDiscount > subtotal)
+        return setValidationError("الخصم يجب أن يكون بين صفر وإجمالي الأصناف.");
+      const paid = f.paid as number;
+      if (!Number.isFinite(paid) || paid < 0 || paid > total)
+        return setValidationError("المدفوع يجب أن يكون بين صفر وإجمالي الفاتورة.");
+      onSave({
+        date: f.date as string, invoiceNumber: f.invoiceNumber as string,
+        supplierId: f.supplierId as string, warehouseId: f.warehouseId as string,
+        paid, discount: invoiceDiscount, note: f.note as string, items,
+      });
       if (!initial) setLines(blank());
     }}>
       <div className="form-grid">
         <DateField value={initial?.date} />
+        <Field label="رقم الفاتورة"><input name="invoiceNumber" defaultValue={initial?.invoiceNumber} /></Field>
         <Field label="المورد"><Select name="supplierId" options={opt(db.suppliers)} defaultValue={initial?.supplierId} /></Field>
         <Field label="المخزن"><Select name="warehouseId" options={whOpts(db)} defaultValue={initial?.warehouseId ?? ""} /></Field>
-        <NumField label="المدفوع الآن" name="paid" value={initial?.paid ?? 0} />
+        <Field label="الخصم"><input type="number" step="any" min="0" max={subtotal} name="discount"
+          value={discount} onChange={(event) => setDiscount(Number(event.target.value) || 0)} /></Field>
+        <Field label="المدفوع الآن"><input type="number" step="any" min="0" max={total} name="paid" defaultValue={initial?.paid ?? 0} /></Field>
         <Field label="ملاحظة"><input name="note" defaultValue={initial?.note} /></Field>
       </div>
       <LinesEditor db={db} lines={lines} onChange={setLines} priceLabel="سعر الشراء" withExpiry />
       <div className="invoice-total">إجمالي الفاتورة: <b>{fmt(total)} ج</b></div>
+      {validationError && <div className="alert red" role="alert">{validationError}</div>}
       <Actions editing={!!initial} onCancel={onCancel} label="حفظ الفاتورة" />
     </form>
   );
@@ -235,13 +264,14 @@ export function ReturnForm(props: {
                 : { productId: l.productId, qty: +l.qty, cost: +l.unitPrice || 0 });
       if (!items.length) return alert("أضف صنفاً بكمية صحيحة");
       props.onSave({
-        date: f.date, warehouseId: f.warehouseId, note: f.note, items,
+        date: f.date, invoiceNumber: f.invoiceNumber, warehouseId: f.warehouseId, note: f.note, items,
         ...(isSales ? { traderId: f.partyId } : { supplierId: f.partyId }),
       });
       if (!initial) setLines(blank());
     }}>
       <div className="form-grid">
         <DateField value={initial?.date} />
+        <Field label="رقم الفاتورة"><input name="invoiceNumber" defaultValue={initial?.invoiceNumber} /></Field>
         <Field label={isSales ? "التاجر" : "المورد"}>
           <Select name="partyId" options={opt(isSales ? db.traders : db.suppliers)}
             defaultValue={isSales ? init?.traderId : init?.supplierId} />

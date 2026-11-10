@@ -40,21 +40,25 @@ export interface PurchaseLine {
 export interface Sale {
   id: string;
   date: string;
+  invoiceNumber?: string;
   traderId: string;
   gov: string;
   warehouseId?: string;
   items: SaleLine[];
   paid: number;
+  discount?: number;
   note?: string;
 }
 
 export interface Purchase {
   id: string;
   date: string;
+  invoiceNumber?: string;
   supplierId: string;
   warehouseId?: string;
   items: PurchaseLine[];
   paid: number;
+  discount?: number;
   note?: string;
 }
 
@@ -62,6 +66,7 @@ export interface Purchase {
 export interface SalesReturn {
   id: string;
   date: string;
+  invoiceNumber?: string;
   traderId: string;
   warehouseId?: string;
   items: SaleLine[];
@@ -72,6 +77,7 @@ export interface SalesReturn {
 export interface PurchaseReturn {
   id: string;
   date: string;
+  invoiceNumber?: string;
   supplierId: string;
   warehouseId?: string;
   items: PurchaseLine[];
